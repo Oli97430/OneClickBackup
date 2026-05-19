@@ -55,7 +55,7 @@ def _fs_color(file_system: str, partition_type: str = "") -> str:
         return COLORS["ntfs_color"]
     if fs == "FAT32":
         return COLORS["fat32_color"]
-    if fs in ("EXFAT", "EXFAT"):
+    if fs == "EXFAT":
         return COLORS["exfat_color"]
     if not fs:
         return COLORS["unallocated_color"]

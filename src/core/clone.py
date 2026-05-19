@@ -5,12 +5,14 @@ Provides :class:`CloneMixin` which is mixed into
 ``clone_partition``, and ``migrate_os``.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess
-from typing import Optional
 
 from src.utils.helpers import format_bytes, run_diskpart, run_powershell
+
 
 from src.core.backup import (
     BackupError,
@@ -101,8 +103,9 @@ class CloneMixin:
 
         # 2. Recreate partitions and copy data
         total_parts = len(src_partitions)
-        windows_letter_on_target: Optional[str] = None
-        efi_letter_on_target: Optional[str] = None
+        windows_letter_on_target: str | None = None
+        efi_letter_on_target: str | None = None
+        skipped_partitions: list[int] = []
 
         for idx, part in enumerate(src_partitions):
             self._check_cancelled()
@@ -140,6 +143,7 @@ class CloneMixin:
                 self._log.error(
                     "Failed to create partition %d on target: %s", pnum, exc
                 )
+                skipped_partitions.append(pnum)
                 continue
 
             # Copy data if source has a drive letter and target got one
@@ -171,7 +175,17 @@ class CloneMixin:
                 windows_letter_on_target, efi_letter_on_target
             )
 
-        self._report_progress("Disk clone complete.", 100.0)
+        if skipped_partitions:
+            self._log.warning(
+                "Disk clone completed with %d skipped partition(s): %s",
+                len(skipped_partitions), skipped_partitions,
+            )
+            self._report_progress(
+                f"Disk clone complete ({len(skipped_partitions)} partition(s) skipped).",
+                100.0,
+            )
+        else:
+            self._report_progress("Disk clone complete.", 100.0)
         self._log.info(
             "Cloned disk %d -> %d successfully.", source_disk, target_disk
         )
@@ -273,8 +287,8 @@ class CloneMixin:
         self._check_cancelled()
         _clean_and_initialize_disk(target_disk, style)
 
-        efi_letter: Optional[str] = None
-        windows_letter: Optional[str] = None
+        efi_letter: str | None = None
+        windows_letter: str | None = None
 
         if is_uefi:
             # 2a. UEFI layout: EFI (100 MB) + MSR (16 MB) + Windows (rest)
@@ -355,7 +369,7 @@ class CloneMixin:
     # Private helpers used by clone/migration
     # ------------------------------------------------------------------
 
-    def _find_system_disk(self) -> Optional[int]:
+    def _find_system_disk(self) -> int | None:
         """Return the disk number that holds the C:\\ partition."""
         cmd = (
             "Get-Partition -DriveLetter C -ErrorAction SilentlyContinue | "
@@ -369,7 +383,7 @@ class CloneMixin:
     def _fix_boot_config(
         self,
         windows_letter: str,
-        efi_letter: Optional[str] = None,
+        efi_letter: str | None = None,
     ) -> None:
         """Run ``bcdboot`` to install boot files on the target disk.
 
@@ -469,7 +483,7 @@ class CloneMixin:
             )
             run_powershell(remove_cmd)
 
-    def _find_free_drive_letter(self) -> Optional[str]:
+    def _find_free_drive_letter(self) -> str | None:
         """Return an unused drive letter (Z down to D)."""
         cmd = "Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Name"
         stdout, _, rc = run_powershell(cmd)

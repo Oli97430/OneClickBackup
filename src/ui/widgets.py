@@ -208,7 +208,10 @@ class Tooltip:
 
     def _hide(self):
         if self._tip_window:
-            self._tip_window.destroy()
+            try:
+                self._tip_window.destroy()
+            except tk.TclError:
+                pass
             self._tip_window = None
 
     def update_text(self, text: str):

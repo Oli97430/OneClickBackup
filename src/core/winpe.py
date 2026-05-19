@@ -5,6 +5,8 @@ Provides :class:`WinPEMixin` which is mixed into
 and related helpers.
 """
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess

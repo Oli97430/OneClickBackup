@@ -33,9 +33,19 @@ def _detect_system_locale() -> str:
     supported ``LANGUAGES`` keys.  Returns ``'en'`` if no match is found.
     """
     try:
-        loc, _ = locale.getdefaultlocale()
+        # locale.getlocale() is the non-deprecated replacement for
+        # locale.getdefaultlocale() (deprecated since Python 3.11).
+        loc, _ = locale.getlocale()
         if loc:
-            # loc is typically "xx_YY" (e.g. "fr_FR", "en_US", "zh_CN")
+            lang_prefix = loc.split("_")[0].lower()
+            if lang_prefix in LANGUAGES:
+                return lang_prefix
+    except Exception:
+        pass
+    # Fallback: try the default locale (Windows-specific)
+    try:
+        loc = locale.getdefaultlocale()[0]  # type: ignore[deprecated]
+        if loc:
             lang_prefix = loc.split("_")[0].lower()
             if lang_prefix in LANGUAGES:
                 return lang_prefix

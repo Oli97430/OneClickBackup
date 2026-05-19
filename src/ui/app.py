@@ -61,7 +61,7 @@ class OneClickBackupApp(ctk.CTk):
     """Root application window."""
 
     APP_NAME = "OneClick Backup & Disk Manager"
-    APP_VERSION = "1.0.0"
+    APP_VERSION = "1.1.0"
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1024, 600)
 

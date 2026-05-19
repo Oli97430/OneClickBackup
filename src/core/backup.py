@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -923,7 +923,6 @@ class BackupManager(CloneMixin, WinPEMixin):
             )
 
         return matches
-
 
     # ======================================================================
     # Private helpers
