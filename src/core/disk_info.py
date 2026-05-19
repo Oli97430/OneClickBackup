@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 _disk_cache: list[DiskInfo] | None = None
 _cache_timestamp: float = 0.0
 _CACHE_TTL_SECONDS: float = 5.0
+_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -575,20 +577,24 @@ def get_all_disks() -> list[DiskInfo]:
     global _disk_cache, _cache_timestamp
 
     now = time.monotonic()
-    if _disk_cache is not None and (now - _cache_timestamp) < _CACHE_TTL_SECONDS:
-        return _disk_cache
+    with _cache_lock:
+        if _disk_cache is not None and (now - _cache_timestamp) < _CACHE_TTL_SECONDS:
+            return list(_disk_cache)  # Return a copy
 
     disks = _gather_disks()
-    _disk_cache = disks
-    _cache_timestamp = time.monotonic()
+
+    with _cache_lock:
+        _disk_cache = disks
+        _cache_timestamp = time.monotonic()
     return disks
 
 
 def refresh_disk_info() -> list[DiskInfo]:
     """Force a fresh disk scan, ignoring the cache."""
     global _disk_cache, _cache_timestamp
-    _disk_cache = None
-    _cache_timestamp = 0.0
+    with _cache_lock:
+        _disk_cache = None
+        _cache_timestamp = 0.0
     return get_all_disks()
 
 

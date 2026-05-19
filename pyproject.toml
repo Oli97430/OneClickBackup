@@ -1,0 +1,38 @@
+[project]
+name = "OneClickBackup"
+version = "1.0.0"
+description = "Modern Windows disk management and backup utility"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "customtkinter>=5.2.0",
+    "psutil>=5.9.0",
+    "wmi>=1.5.1",
+    "pywin32>=306",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short -q"
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+reportMissingImports = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["E501"]

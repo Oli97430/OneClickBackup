@@ -98,33 +98,46 @@ pip install -r requirements.txt
 
 ```
 OneClickBackup/
-├── main.py                   # Entry point
+├── main.py                   # Entry point (logging setup, dependency check)
 ├── launch.bat                # Windows launcher (auto-install + admin elevation)
 ├── install.bat               # Dependency installer
 ├── build.py                  # PyInstaller build script
 ├── generate_logo.py          # Logo & icon generator (Pillow)
 ├── requirements.txt          # Python dependencies
+├── pyproject.toml            # Project metadata, pytest/ruff/pyright config
+├── CHANGELOG.md              # Version history
 │
 ├── assets/
-│   ├── logo.png              # 512x512 application logo
+│   ├── logo.png              # 512×512 application logo
 │   └── icon.ico              # Multi-size Windows icon (16–256px)
 │
-└── src/
-    ├── core/
-    │   ├── disk_info.py      # WMI/PowerShell disk & partition scanning
-    │   ├── operations.py     # Queued disk operations (preview-before-apply)
-    │   └── backup.py         # Backup, restore, clone, WinPE creation
-    │
-    ├── ui/
-    │   ├── app.py            # Main window, sidebar navigation, status bar
-    │   ├── dashboard.py      # Dashboard page (disk overview, partition detail)
-    │   ├── pages.py          # Feature pages (clone, partitions, backup, etc.)
-    │   └── widgets.py        # Shared widgets, color palette, styling helpers
-    │
-    └── utils/
-        ├── admin.py          # UAC elevation & admin privilege checks
-        ├── helpers.py        # diskpart/PowerShell wrappers, formatting utils
-        └── i18n.py           # Translation system (6 languages)
+├── src/
+│   ├── core/
+│   │   ├── disk_info.py      # WMI/PowerShell disk & partition scanning
+│   │   ├── operations.py     # Queued disk operations (preview-before-apply)
+│   │   ├── backup.py         # Backup, restore, and core helpers
+│   │   ├── clone.py          # Disk/partition clone & OS migration (mixin)
+│   │   └── winpe.py          # WinPE bootable media creation (mixin)
+│   │
+│   ├── ui/
+│   │   ├── app.py            # Main window, sidebar, status bar, shortcuts
+│   │   ├── dashboard.py      # Dashboard page (disk overview, partition detail)
+│   │   ├── pages.py          # Feature pages with keyboard accessibility
+│   │   └── widgets.py        # Shared widgets, Tooltip, color palette, helpers
+│   │
+│   └── utils/
+│       ├── admin.py          # UAC elevation & admin privilege checks
+│       ├── helpers.py        # diskpart/PowerShell wrappers, formatting utils
+│       └── i18n.py           # Translation system (6 languages, auto-locale)
+│
+└── tests/
+    ├── conftest.py           # Shared pytest fixtures
+    ├── test_helpers.py       # format_bytes, parse_size, safe_int, timestamps
+    ├── test_i18n.py          # Translations, language switching, validation
+    ├── test_disk_info.py     # Dataclass defaults, safe_*, normalization
+    ├── test_operations.py    # Label sanitization, queue, validation
+    ├── test_widgets.py       # Color helpers, format_bytes, fs_color
+    └── test_backup.py        # BackupInfo, exceptions, BackupManager init
 ```
 
 ---

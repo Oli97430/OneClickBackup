@@ -87,7 +87,14 @@ class OneClickBackupApp(ctk.CTk):
         self._sidebar_buttons: dict[str, SidebarButton] = {}
 
         self._build_ui()
+
+        # Warn user if managers failed to load
+        if self._operation_manager is None:
+            self.after(500, lambda: self._status_bar.set_status(
+                "⚠ Some features unavailable (run as Administrator)"))
+
         self._show_page("dashboard")
+        self._bind_global_shortcuts()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -367,6 +374,49 @@ class OneClickBackupApp(ctk.CTk):
         self._admin_status_label.configure(text=status_text, anchor=anchor)
         if self._elevate_btn is not None:
             self._elevate_btn.configure(text=t("admin.elevate"))
+
+    # ------------------------------------------------------------------
+    # Global keyboard shortcuts
+    # ------------------------------------------------------------------
+
+    def _bind_global_shortcuts(self) -> None:
+        """Bind application-wide keyboard shortcuts for navigation and actions."""
+        # Page order matches self._nav_items
+        _page_keys = [
+            ("dashboard", "1"),
+            ("clone", "2"),
+            ("partitions", "3"),
+            ("backup", "4"),
+            ("convert", "5"),
+            ("recovery", "6"),
+            ("advanced", "7"),
+        ]
+        for page_id, key in _page_keys:
+            self.bind_all(
+                f"<Control-Key-{key}>",
+                lambda e, p=page_id: self._show_page(p),
+            )
+
+        self.bind_all("<Control-Key-r>", lambda e: self._refresh_current())
+        self.bind_all("<Control-Key-R>", lambda e: self._refresh_current())
+        self.bind_all("<F5>", lambda e: self._refresh_current())
+        self.bind_all("<Control-Key-q>", lambda e: self._on_close())
+        self.bind_all("<Control-Key-Q>", lambda e: self._on_close())
+
+    def _refresh_current(self) -> None:
+        """Refresh the currently displayed page if it supports refreshing."""
+        page = self._pages.get(self._current_page)
+        if page is None:
+            return
+        # Try common refresh method names used across page classes
+        for method_name in ("_refresh_disks", "_refresh", "refresh"):
+            method = getattr(page, method_name, None)
+            if callable(method):
+                method()
+                self._status_bar.set_status(
+                    f"{self._get_page_title(self._current_page)} — refreshed"
+                )
+                return
 
     # ------------------------------------------------------------------
     # Callbacks

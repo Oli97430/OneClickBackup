@@ -35,9 +35,15 @@ Desktop.ini
 
 # Logs
 *.log
+.oneclickbackup_logs/
 
 # User settings
 .oneclickbackup_lang.json
+
+# Test / Coverage
+.pytest_cache/
+htmlcov/
+.coverage
 
 # Claude
 .claude/

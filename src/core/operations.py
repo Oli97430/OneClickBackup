@@ -6,14 +6,16 @@ diskpart and PowerShell commands. Each operation is validated, queued,
 and only executed after explicit confirmation.
 """
 
+from __future__ import annotations
+
 import subprocess
 import tempfile
 import os
 import logging
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 from pathlib import Path
 
 
@@ -76,21 +78,21 @@ class OperationManager:
     # Progress / queue management
     # ------------------------------------------------------------------
 
-    def set_progress_callback(self, callback: Callable[[str, float], None]):
+    def set_progress_callback(self, callback: Callable[[str, float], None]) -> None:
         """Set callback for progress updates: callback(message, percent_0_to_100)."""
         self._progress_callback = callback
 
-    def _report_progress(self, message: str, percent: float):
+    def _report_progress(self, message: str, percent: float) -> None:
         """Send a progress update if a callback is registered."""
         if self._progress_callback is not None:
             self._progress_callback(message, percent)
 
-    def add_operation(self, op: PendingOperation):
+    def add_operation(self, op: PendingOperation) -> None:
         """Add operation to pending queue."""
         self._log.info("Queued operation: %s", op.description)
         self._pending.append(op)
 
-    def remove_operation(self, index: int):
+    def remove_operation(self, index: int) -> None:
         """Remove operation from pending queue by index."""
         if index < 0 or index >= len(self._pending):
             raise IndexError(
@@ -99,7 +101,7 @@ class OperationManager:
         removed = self._pending.pop(index)
         self._log.info("Removed queued operation: %s", removed.description)
 
-    def clear_pending(self):
+    def clear_pending(self) -> None:
         """Clear all pending operations."""
         count = len(self._pending)
         self._pending.clear()
@@ -173,19 +175,19 @@ class OperationManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _validate_disk_index(disk_index: int):
+    def _validate_disk_index(disk_index: int) -> None:
         if not isinstance(disk_index, int) or disk_index < 0:
             raise ValueError(f"disk_index must be a non-negative integer, got {disk_index!r}")
 
     @staticmethod
-    def _validate_partition_index(partition_index: int):
+    def _validate_partition_index(partition_index: int) -> None:
         if not isinstance(partition_index, int) or partition_index < 1:
             raise ValueError(
                 f"partition_index must be a positive integer (1-based), got {partition_index!r}"
             )
 
     @classmethod
-    def _validate_file_system(cls, file_system: str):
+    def _validate_file_system(cls, file_system: str) -> None:
         fs_upper = file_system.upper()
         if fs_upper not in cls._VALID_FILE_SYSTEMS:
             raise ValueError(
@@ -194,12 +196,12 @@ class OperationManager:
             )
 
     @classmethod
-    def _validate_drive_letter(cls, letter: str):
+    def _validate_drive_letter(cls, letter: str) -> None:
         if len(letter) != 1 or letter.upper() not in cls._VALID_DRIVE_LETTERS:
             raise ValueError(f"Invalid drive letter {letter!r}. Must be A-Z.")
 
     @staticmethod
-    def _validate_size_bytes(size_bytes: int, label: str = "size_bytes"):
+    def _validate_size_bytes(size_bytes: int, label: str = "size_bytes") -> None:
         if not isinstance(size_bytes, int) or size_bytes <= 0:
             raise ValueError(f"{label} must be a positive integer, got {size_bytes!r}")
 
@@ -209,7 +211,7 @@ class OperationManager:
 
     def queue_resize_partition(
         self, disk_index: int, partition_index: int, new_size_bytes: int
-    ):
+    ) -> None:
         """Queue a partition resize operation.
 
         Uses PowerShell: Resize-Partition -DiskNumber X -PartitionNumber Y -Size Z
@@ -242,7 +244,7 @@ class OperationManager:
         file_system: str = "NTFS",
         label: str = "",
         drive_letter: str = "",
-    ):
+    ) -> None:
         """Queue partition creation.
 
         Uses diskpart: create partition primary size=X, then format.
@@ -277,7 +279,7 @@ class OperationManager:
         )
         self.add_operation(op)
 
-    def queue_delete_partition(self, disk_index: int, partition_index: int):
+    def queue_delete_partition(self, disk_index: int, partition_index: int) -> None:
         """Queue partition deletion.
 
         Uses diskpart: delete partition override.
@@ -304,7 +306,7 @@ class OperationManager:
         file_system: str = "NTFS",
         label: str = "",
         quick: bool = True,
-    ):
+    ) -> None:
         """Queue format operation.
 
         Uses diskpart or PowerShell Format-Volume.
@@ -338,7 +340,7 @@ class OperationManager:
 
     def queue_merge_partitions(
         self, disk_index: int, partition_index_1: int, partition_index_2: int
-    ):
+    ) -> None:
         """Queue merge of two adjacent partitions (delete second, extend first).
 
         The second partition is deleted and the first is extended to fill
@@ -367,7 +369,7 @@ class OperationManager:
         )
         self.add_operation(op)
 
-    def queue_convert_mbr_to_gpt(self, disk_index: int):
+    def queue_convert_mbr_to_gpt(self, disk_index: int) -> None:
         """Queue MBR to GPT conversion.
 
         Uses mbr2gpt.exe /convert /disk:X /allowFullOS for non-destructive conversion.
@@ -384,7 +386,7 @@ class OperationManager:
         )
         self.add_operation(op)
 
-    def queue_convert_gpt_to_mbr(self, disk_index: int):
+    def queue_convert_gpt_to_mbr(self, disk_index: int) -> None:
         """Queue GPT to MBR conversion.
 
         WARNING: This is a destructive operation — disk must be empty.
@@ -402,7 +404,7 @@ class OperationManager:
         )
         self.add_operation(op)
 
-    def queue_set_active(self, disk_index: int, partition_index: int):
+    def queue_set_active(self, disk_index: int, partition_index: int) -> None:
         """Queue set partition as active (MBR disks only)."""
         self._validate_disk_index(disk_index)
         self._validate_partition_index(partition_index)
@@ -421,7 +423,7 @@ class OperationManager:
 
     def queue_change_letter(
         self, disk_index: int, partition_index: int, new_letter: str
-    ):
+    ) -> None:
         """Queue drive letter change."""
         self._validate_disk_index(disk_index)
         self._validate_partition_index(partition_index)
@@ -443,7 +445,7 @@ class OperationManager:
         )
         self.add_operation(op)
 
-    def queue_4k_align(self, disk_index: int, partition_index: int):
+    def queue_4k_align(self, disk_index: int, partition_index: int) -> None:
         """Queue 4K alignment check / operation.
 
         Verifies whether the partition offset is 4K-aligned. If not, logs a

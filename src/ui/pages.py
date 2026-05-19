@@ -28,8 +28,9 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 try:
-    from src.ui.widgets import COLORS, format_bytes, ConfirmDialog, ProgressDialog, DiskBar
+    from src.ui.widgets import COLORS, format_bytes, ConfirmDialog, ProgressDialog, DiskBar, Tooltip
 except ImportError:
+    Tooltip = None  # type: ignore[assignment,misc]
     COLORS = {
         "bg_dark": "#0f1117", "bg_medium": "#161b22", "bg_light": "#1f2937",
         "bg_card": "#1a1e2a", "accent_blue": "#6366f1", "accent_green": "#34d399",
@@ -132,10 +133,56 @@ def _disk_display(d) -> str:
 
 
 # ============================================================================
+# Mixin: keyboard accessibility helpers
+# ============================================================================
+
+
+class _KeyboardAccessMixin:
+    """Mixin providing keyboard accessibility helpers for page classes.
+
+    Subclasses call ``_apply_keyboard_accessibility()`` at the end of their
+    ``_build_ui()`` to set hand cursors on buttons and make interactive
+    widgets Tab-focusable with visual feedback.
+    """
+
+    def _get_all_buttons(self) -> list:
+        """Recursively find all CTkButton widgets in this page."""
+        buttons: list = []
+        self._collect_buttons(self, buttons)  # type: ignore[arg-type]
+        return buttons
+
+    @staticmethod
+    def _collect_buttons(widget, result: list) -> None:
+        """Walk the widget tree collecting CTkButton instances."""
+        for child in widget.winfo_children():
+            if isinstance(child, ctk.CTkButton):
+                result.append(child)
+            _KeyboardAccessMixin._collect_buttons(child, result)
+
+    def _apply_keyboard_accessibility(self) -> None:
+        """Make buttons focusable with hand cursor and visual focus ring."""
+        for btn in self._get_all_buttons():
+            btn.configure(cursor="hand2")
+            # Make button Tab-focusable and activatable via Return/Space
+            try:
+                btn.configure(takefocus=True)
+            except (ValueError, tk.TclError):
+                pass
+            btn.bind("<Return>", lambda e, b=btn: b.invoke(), add="+")
+            btn.bind("<space>", lambda e, b=btn: b.invoke(), add="+")
+            btn.bind("<FocusIn>", lambda e, b=btn: b.configure(
+                border_width=2, border_color=COLORS["accent_blue"],
+            ) if hasattr(b, 'configure') else None, add="+")
+            btn.bind("<FocusOut>", lambda e, b=btn: b.configure(
+                border_width=0,
+            ) if hasattr(b, 'configure') else None, add="+")
+
+
+# ============================================================================
 #  1.  ClonePage
 # ============================================================================
 
-class ClonePage(_DiskPageMixin, ctk.CTkFrame):
+class ClonePage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Disk cloning and OS migration interface."""
 
     def __init__(self, parent, *, operation_manager=None, backup_manager=None):
@@ -144,6 +191,8 @@ class ClonePage(_DiskPageMixin, ctk.CTkFrame):
         self._bkpmgr = backup_manager
         self._disks: list = []
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh_disks()
 
     # -- UI ----------------------------------------------------------------
@@ -266,6 +315,14 @@ class ClonePage(_DiskPageMixin, ctk.CTkFrame):
         )
         self._start_btn.grid(row=0, column=1, padx=(15, 0))
 
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-s>", lambda e: self._src_combo.focus_set())
+        self.bind("<Alt-t>", lambda e: self._tgt_combo.focus_set())
+        self.bind("<Alt-Return>", lambda e: self._start_clone())
+
     # -- Logic -------------------------------------------------------------
 
     def _refresh_disks(self):
@@ -301,7 +358,7 @@ class ClonePage(_DiskPageMixin, ctk.CTkFrame):
 #  2.  PartitionPage
 # ============================================================================
 
-class PartitionPage(_DiskPageMixin, ctk.CTkFrame):
+class PartitionPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Partition management interface."""
 
     def __init__(self, parent, *, operation_manager=None):
@@ -310,6 +367,8 @@ class PartitionPage(_DiskPageMixin, ctk.CTkFrame):
         self._disks: list = []
         self._selected_part = None
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh_disks()
 
     def _build_ui(self):
@@ -379,6 +438,12 @@ class PartitionPage(_DiskPageMixin, ctk.CTkFrame):
                 fg_color=color, hover_color=COLORS["hover"],
                 command=cmd,
             ).grid(row=0, column=i, padx=4, pady=4)
+
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-d>", lambda e: self._disk_combo.focus_set())
 
     # -- Data --------------------------------------------------------------
 
@@ -530,7 +595,7 @@ class PartitionPage(_DiskPageMixin, ctk.CTkFrame):
 #  3.  ConversionPage
 # ============================================================================
 
-class ConversionPage(_DiskPageMixin, ctk.CTkFrame):
+class ConversionPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Disk and partition conversion tools."""
 
     def __init__(self, parent, *, operation_manager=None):
@@ -538,6 +603,8 @@ class ConversionPage(_DiskPageMixin, ctk.CTkFrame):
         self._opmgr = operation_manager
         self._disks: list = []
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh()
 
     def _build_ui(self):
@@ -646,6 +713,15 @@ class ConversionPage(_DiskPageMixin, ctk.CTkFrame):
                           t("conv.pl_msg")),
                       ).pack(padx=15, pady=15, anchor="w")
 
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-d>", lambda e: self._conv_disk_combo.focus_set())
+        self.bind("<Alt-f>", lambda e: self._fs_part_combo.focus_set())
+
+    # -- Logic -------------------------------------------------------------
+
     def _refresh(self):
         self._refresh_disks_bg()
 
@@ -702,7 +778,7 @@ class ConversionPage(_DiskPageMixin, ctk.CTkFrame):
 #  4.  BackupPage
 # ============================================================================
 
-class BackupPage(_DiskPageMixin, ctk.CTkFrame):
+class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Backup and restore interface with tabs."""
 
     def __init__(self, parent, *, backup_manager=None):
@@ -710,6 +786,8 @@ class BackupPage(_DiskPageMixin, ctk.CTkFrame):
         self._bkpmgr = backup_manager
         self._disks: list = []
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh()
 
     def _build_ui(self):
@@ -848,6 +926,13 @@ class BackupPage(_DiskPageMixin, ctk.CTkFrame):
                                            progress_color=COLORS["accent_green"])
         self._auto_verify.grid(row=1, column=1, sticky="w", padx=10, pady=8)
 
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-b>", lambda e: self._browse_dest())
+        self.bind("<Alt-Return>", lambda e: self._create_backup())
+
     # -- Helpers -----------------------------------------------------------
 
     def _refresh(self):
@@ -935,7 +1020,7 @@ class BackupPage(_DiskPageMixin, ctk.CTkFrame):
 #  5.  RecoveryPage
 # ============================================================================
 
-class RecoveryPage(_DiskPageMixin, ctk.CTkFrame):
+class RecoveryPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Partition recovery wizard."""
 
     def __init__(self, parent, **_kw):
@@ -944,6 +1029,8 @@ class RecoveryPage(_DiskPageMixin, ctk.CTkFrame):
         self._step = 0
         self._found_parts: list = []
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh()
 
     def _build_ui(self):
@@ -986,6 +1073,15 @@ class RecoveryPage(_DiskPageMixin, ctk.CTkFrame):
         self._next_btn.pack(side="right")
 
         self._show_step(0)
+
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-Right>", lambda e: self._go_next())
+        self.bind("<Alt-Left>", lambda e: self._go_back())
+
+    # -- Logic -------------------------------------------------------------
 
     def _refresh(self):
         self._refresh_disks_bg()
@@ -1125,7 +1221,7 @@ class RecoveryPage(_DiskPageMixin, ctk.CTkFrame):
 #  6.  AdvancedPage
 # ============================================================================
 
-class AdvancedPage(_DiskPageMixin, ctk.CTkFrame):
+class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     """Advanced tools: 4K alignment, WinPE, disk health, secure wipe."""
 
     def __init__(self, parent, *, operation_manager=None, backup_manager=None):
@@ -1134,6 +1230,8 @@ class AdvancedPage(_DiskPageMixin, ctk.CTkFrame):
         self._bkpmgr = backup_manager
         self._disks: list = []
         self._build_ui()
+        self._apply_keyboard_accessibility()
+        self._bind_shortcuts()
         self._refresh()
 
     def _build_ui(self):
@@ -1251,6 +1349,15 @@ class AdvancedPage(_DiskPageMixin, ctk.CTkFrame):
         ctk.CTkButton(wipe_card, text=t("adv.wipe_btn"), width=160, height=34,
                       fg_color=COLORS["accent_red"], hover_color="#c0392b",
                       command=self._wipe_disk).pack(padx=15, pady=(10, 15), anchor="w")
+
+    # -- Keyboard shortcuts ------------------------------------------------
+
+    def _bind_shortcuts(self):
+        """Bind page-specific keyboard shortcuts."""
+        self.bind("<Alt-a>", lambda e: self._align_combo.focus_set())
+        self.bind("<Alt-w>", lambda e: self._wipe_combo.focus_set())
+
+    # -- Logic -------------------------------------------------------------
 
     def _refresh(self):
         self._refresh_disks_bg()

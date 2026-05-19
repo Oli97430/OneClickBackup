@@ -4,12 +4,6 @@ dashboard.py - Main dashboard page for the disk management application.
 Provides an overview of all physical disks and partitions with visual
 representations, summary statistics, and a detail panel for the
 currently selected partition.
-
-Layout:
-    Top:    System summary cards (total disks, total storage, SSDs, HDDs)
-    Middle: Scrollable list of DiskCard widgets for each detected disk
-    Right:  Partition detail panel (shown when a partition is selected)
-    Bottom: Color legend for filesystem types and a Refresh button
 """
 
 from __future__ import annotations
@@ -19,72 +13,27 @@ import customtkinter as ctk
 import tkinter as tk
 from typing import Callable, Optional
 import threading
-import math
 
 _log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Import sibling modules -- use try/except so the module can still be
-# imported for testing even when the rest of the package is absent.
-# ---------------------------------------------------------------------------
-
+# Import from sibling modules
 try:
     from src.core.disk_info import get_all_disks, DiskInfo, PartitionInfo
 except ImportError:
-    get_all_disks = None  # type: ignore[assignment]
-    DiskInfo = None  # type: ignore[assignment,misc]
-    PartitionInfo = None  # type: ignore[assignment,misc]
-
-try:
-    from src.utils.helpers import format_bytes as _helpers_format_bytes
-except ImportError:
-    _helpers_format_bytes = None  # type: ignore[assignment]
+    get_all_disks = None
+    DiskInfo = None
+    PartitionInfo = None
 
 try:
     from src.utils.i18n import t
 except ImportError:
     def t(key, **kw): return key
 
-
-# ---------------------------------------------------------------------------
-# Color palette -- import the canonical theme from widgets, then extend
-# with dashboard-specific keys
-# ---------------------------------------------------------------------------
-
-try:
-    from src.ui.widgets import COLORS as _WIDGET_COLORS
-    COLORS: dict[str, str] = dict(_WIDGET_COLORS)
-except ImportError:
-    COLORS = {}
-
-# Dashboard-specific additions / overrides
-COLORS.setdefault("bg_bar", "#252e3d")
-COLORS.setdefault("other_fs_color", "#38bdf8")
-COLORS.setdefault("health_healthy", "#34d399")
-COLORS.setdefault("health_warning", "#fbbf24")
-COLORS.setdefault("health_unhealthy", "#f87171")
-COLORS.setdefault("health_unknown", "#475569")
-
-
-# ---------------------------------------------------------------------------
-# Utility: format_bytes (delegate to helpers or use local fallback)
-# ---------------------------------------------------------------------------
-
-def format_bytes(size_bytes: int | float) -> str:
-    """Convert a byte count to a human-readable string (e.g. '1.50 GB')."""
-    if _helpers_format_bytes is not None:
-        return _helpers_format_bytes(int(size_bytes))
-
-    if size_bytes < 0:
-        return "0 B"
-    units = ("B", "KB", "MB", "GB", "TB", "PB")
-    factor = 1024.0
-    value = float(size_bytes)
-    for unit in units:
-        if abs(value) < factor:
-            return f"{value:.2f} {unit}"
-        value /= factor
-    return f"{value:.2f} EB"
+# Import shared widgets and utilities (single source of truth)
+from src.ui.widgets import (
+    COLORS, PARTITION_COLORS, _lighten, _darken, _canvas_rounded_rect,
+    format_bytes, get_fs_color, _get, _health_color,
+)
 
 
 def _usage_percent(used: int | float, total: int | float) -> float:
@@ -98,8 +47,7 @@ def _fs_color(file_system: str, partition_type: str = "") -> str:
     """Return the legend color for a given filesystem / partition type."""
     fs = file_system.upper() if file_system else ""
     pt = partition_type.lower() if partition_type else ""
-
-    if "efi" in pt or "efi" in fs or fs == "FAT32" and "efi" in pt:
+    if "efi" in pt or "efi" in fs:
         return COLORS["efi_color"]
     if "recovery" in pt or "recovery" in fs:
         return COLORS["recovery_color"]
@@ -112,33 +60,6 @@ def _fs_color(file_system: str, partition_type: str = "") -> str:
     if not fs:
         return COLORS["unallocated_color"]
     return COLORS["other_fs_color"]
-
-
-def _health_color(status: str) -> str:
-    """Return a color for a disk health status string."""
-    s = status.lower() if status else ""
-    if s in ("healthy", "ok"):
-        return COLORS["health_healthy"]
-    if s in ("warning", "degraded"):
-        return COLORS["health_warning"]
-    if s in ("unhealthy", "failed", "error"):
-        return COLORS["health_unhealthy"]
-    return COLORS["health_unknown"]
-
-
-# ===================================================================
-# Widget: DiskBar -- horizontal stacked bar showing partition layout
-# ===================================================================
-
-def _lighten_dash(hex_color: str, factor: float = 0.25) -> str:
-    """Return a lightened version of *hex_color* for gradient effects."""
-    r = int(hex_color[1:3], 16)
-    g = int(hex_color[3:5], 16)
-    b = int(hex_color[5:7], 16)
-    r = min(255, int(r + (255 - r) * factor))
-    g = min(255, int(g + (255 - g) * factor))
-    b = min(255, int(b + (255 - b) * factor))
-    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 class DiskBar(ctk.CTkFrame):
@@ -205,7 +126,7 @@ class DiskBar(ctk.CTkFrame):
             fs = getattr(part, "file_system", "") or ""
             pt = getattr(part, "partition_type", "") or ""
             color = _fs_color(fs, pt)
-            lighter = _lighten_dash(color, 0.20)
+            lighter = _lighten(color, 0.20)
             mid_y = height // 2
 
             # Gradient: lighter top half, true color bottom half
@@ -223,7 +144,7 @@ class DiskBar(ctk.CTkFrame):
             if seg_w > 6:
                 self._canvas.create_line(
                     ix + 2, 1, ix + seg_w - 2, 1,
-                    fill=_lighten_dash(color, 0.45), width=1,
+                    fill=_lighten(color, 0.45), width=1,
                 )
 
             # Label inside the segment

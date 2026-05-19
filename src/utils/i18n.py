@@ -12,15 +12,36 @@ Usage:
 from __future__ import annotations
 
 import json
+import locale
 import os
+import threading
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
 
-_current_lang: str = "fr"
+_current_lang: str = "en"
+_lang_lock = threading.Lock()
 _SETTINGS_FILE = os.path.join(os.path.expanduser("~"), ".oneclickbackup_lang.json")
+
+
+def _detect_system_locale() -> str:
+    """Return the best matching language code from the system locale.
+
+    Maps Windows locale codes (e.g. ``'fr_FR'`` -> ``'fr'``) to the
+    supported ``LANGUAGES`` keys.  Returns ``'en'`` if no match is found.
+    """
+    try:
+        loc, _ = locale.getdefaultlocale()
+        if loc:
+            # loc is typically "xx_YY" (e.g. "fr_FR", "en_US", "zh_CN")
+            lang_prefix = loc.split("_")[0].lower()
+            if lang_prefix in LANGUAGES:
+                return lang_prefix
+    except Exception:
+        pass
+    return "en"
 
 # ---------------------------------------------------------------------------
 # Translations
@@ -822,7 +843,9 @@ def t(key: str, **kwargs) -> str:
     Supports ``{placeholder}`` substitution via keyword arguments.
     Falls back to English, then returns the key itself.
     """
-    text = _T.get(_current_lang, {}).get(key)
+    with _lang_lock:
+        lang = _current_lang
+    text = _T.get(lang, {}).get(key)
     if text is None:
         text = _T["en"].get(key, key)
     if kwargs:
@@ -837,13 +860,15 @@ def set_language(lang: str) -> None:
     """Switch the active language (e.g. ``'fr'``, ``'en'``)."""
     global _current_lang
     if lang in LANGUAGES:
-        _current_lang = lang
+        with _lang_lock:
+            _current_lang = lang
         _save_preference(lang)
 
 
 def get_language() -> str:
     """Return the current language code."""
-    return _current_lang
+    with _lang_lock:
+        return _current_lang
 
 
 def get_languages() -> dict[str, str]:
@@ -852,17 +877,26 @@ def get_languages() -> dict[str, str]:
 
 
 def load_preference() -> None:
-    """Load the saved language preference from disk."""
+    """Load the saved language preference from disk.
+
+    Priority: saved preference file > system locale detection > ``'en'``.
+    """
     global _current_lang
     try:
         if os.path.isfile(_SETTINGS_FILE):
             with open(_SETTINGS_FILE, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
-            lang = data.get("lang", "fr")
-            if lang in LANGUAGES:
-                _current_lang = lang
+            lang = data.get("lang")
+            if lang and lang in LANGUAGES:
+                with _lang_lock:
+                    _current_lang = lang
+                return
     except Exception:
         pass
+    # No saved preference -- fall back to system locale detection
+    detected = _detect_system_locale()
+    with _lang_lock:
+        _current_lang = detected
 
 
 def _save_preference(lang: str) -> None:

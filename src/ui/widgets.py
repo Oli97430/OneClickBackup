@@ -63,6 +63,35 @@ PARTITION_COLORS = {
     "Unallocated": COLORS["unallocated_color"],
 }
 
+
+def _get(obj: Any, key: str, default: Any = None) -> Any:
+    """Get attribute from dict or dataclass transparently."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+# Dashboard-specific extensions
+COLORS["bg_bar"] = "#252e3d"
+COLORS["other_fs_color"] = "#38bdf8"
+COLORS["health_healthy"] = "#34d399"
+COLORS["health_warning"] = "#fbbf24"
+COLORS["health_unhealthy"] = "#f87171"
+COLORS["health_unknown"] = "#475569"
+
+
+def _health_color(status: str) -> str:
+    """Return a color for a disk health status string."""
+    s = status.lower() if status else ""
+    if s in ("healthy", "ok"):
+        return COLORS["health_healthy"]
+    if s in ("warning", "degraded"):
+        return COLORS["health_warning"]
+    if s in ("unhealthy", "failed", "error"):
+        return COLORS["health_unhealthy"]
+    return COLORS["health_unknown"]
+
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -133,6 +162,58 @@ def get_fs_color(file_system: str) -> str:
         if key.upper() in fs_upper:
             return color
     return COLORS["unknown_color"]
+
+
+# ---------------------------------------------------------------------------
+# 0. Tooltip
+# ---------------------------------------------------------------------------
+
+
+class Tooltip:
+    """Simple hover tooltip for any widget."""
+
+    def __init__(self, widget: tk.Widget, text: str, delay: int = 500):
+        self._widget = widget
+        self._text = text
+        self._delay = delay
+        self._tip_window: Optional[tk.Toplevel] = None
+        self._after_id: Optional[str] = None
+        widget.bind("<Enter>", self._on_enter, add="+")
+        widget.bind("<Leave>", self._on_leave, add="+")
+
+    def _on_enter(self, event=None):
+        self._after_id = self._widget.after(self._delay, self._show)
+
+    def _on_leave(self, event=None):
+        if self._after_id:
+            self._widget.after_cancel(self._after_id)
+            self._after_id = None
+        self._hide()
+
+    def _show(self):
+        if self._tip_window:
+            return
+        x = self._widget.winfo_rootx() + 20
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 5
+        self._tip_window = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        label = tk.Label(
+            tw, text=self._text, justify="left",
+            background=COLORS["bg_light"], foreground=COLORS["text_primary"],
+            relief="solid", borderwidth=1,
+            font=("Segoe UI", 9), padx=8, pady=4,
+        )
+        label.pack()
+
+    def _hide(self):
+        if self._tip_window:
+            self._tip_window.destroy()
+            self._tip_window = None
+
+    def update_text(self, text: str):
+        """Update the tooltip text (takes effect on next hover)."""
+        self._text = text
 
 
 # ---------------------------------------------------------------------------

@@ -1,11 +1,12 @@
 """General-purpose utility functions for OneClickBackup."""
 
+from __future__ import annotations
+
 import os
 import re
 import subprocess
 import tempfile
 from datetime import datetime
-from typing import Optional, Tuple
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -63,7 +64,7 @@ def parse_size_to_bytes(size_str: str) -> int:
     return int(value * multipliers.get(unit, 1))
 
 
-def get_drive_letter_from_path(path: str) -> Optional[str]:
+def get_drive_letter_from_path(path: str) -> str | None:
     """Extract the drive letter from a Windows file path.
 
     Args:
@@ -98,7 +99,7 @@ def safe_int(value: object, default: int = 0) -> int:
         return default
 
 
-def run_powershell(command: str) -> Tuple[str, str, int]:
+def run_powershell(command: str) -> tuple[str, str, int]:
     """Execute a PowerShell command and capture its output.
 
     Args:
@@ -123,7 +124,7 @@ def run_powershell(command: str) -> Tuple[str, str, int]:
         return "", f"OS error running PowerShell: {e}", 1
 
 
-def run_diskpart(script_lines: list[str]) -> Tuple[str, str, int]:
+def run_diskpart(script_lines: list[str]) -> tuple[str, str, int]:
     """Run a diskpart script and return its output.
 
     Creates a temporary script file, invokes diskpart, then cleans up.
@@ -134,7 +135,7 @@ def run_diskpart(script_lines: list[str]) -> Tuple[str, str, int]:
     Returns:
         A tuple of (stdout, stderr, return_code).
     """
-    tmp_path: Optional[str] = None
+    tmp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, prefix="diskpart_"

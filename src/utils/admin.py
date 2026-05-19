@@ -1,9 +1,15 @@
 """Administrator privilege utilities for Windows."""
 
+from __future__ import annotations
+
 import ctypes
-import sys
 import functools
-from typing import Callable, Any
+import logging
+import sys
+from collections.abc import Callable
+from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 def is_admin() -> bool:
@@ -40,7 +46,7 @@ def run_as_admin() -> None:
             1,  # SW_SHOWNORMAL
         )
     except OSError as e:
-        print(f"Failed to elevate privileges: {e}")
+        _log.error("Failed to elevate privileges: %s", e)
         sys.exit(1)
 
     sys.exit(0)
@@ -61,7 +67,7 @@ def require_admin(func: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         if not is_admin():
-            print("Administrator privileges required. Requesting elevation...")
+            _log.warning("Administrator privileges required. Requesting elevation...")
             run_as_admin()
             # run_as_admin calls sys.exit, so this line is only reached
             # if already admin or elevation was skipped
