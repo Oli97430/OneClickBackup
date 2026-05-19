@@ -26,7 +26,7 @@ DIST_DIR = os.path.join(PROJECT_ROOT, "dist")
 BUILD_DIR = os.path.join(PROJECT_ROOT, "build")
 
 APP_NAME = "OneClickBackup"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 
 def check_pyinstaller():
