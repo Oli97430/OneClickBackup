@@ -63,6 +63,38 @@ PARTITION_COLORS = {
     "Unallocated": COLORS["unallocated_color"],
 }
 
+# Light theme variant (Feature #27)
+COLORS_LIGHT = {
+    "bg_dark":       "#f8fafc",
+    "bg_medium":     "#f1f5f9",
+    "bg_light":      "#e2e8f0",
+    "bg_card":       "#ffffff",
+    "accent_blue":   "#4f46e5",
+    "accent_green":  "#059669",
+    "accent_yellow": "#d97706",
+    "accent_red":    "#dc2626",
+    "accent_purple": "#7c3aed",
+    "accent_orange": "#ea580c",
+    "text_primary":  "#0f172a",
+    "text_secondary": "#475569",
+    "text_muted":    "#94a3b8",
+    "border":        "#cbd5e1",
+    "hover":         "#e2e8f0",
+    "ntfs_color":    "#3b82f6",
+    "fat32_color":   "#10b981",
+    "exfat_color":   "#8b5cf6",
+    "efi_color":     "#f59e0b",
+    "recovery_color": "#f43f5e",
+    "unallocated_color": "#e2e8f0",
+    "unknown_color": "#94a3b8",
+    "bg_bar":        "#e2e8f0",
+    "other_fs_color": "#0ea5e9",
+    "health_healthy": "#059669",
+    "health_warning": "#d97706",
+    "health_unhealthy": "#dc2626",
+    "health_unknown": "#94a3b8",
+}
+
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     """Get attribute from dict or dataclass transparently."""

@@ -42,6 +42,8 @@ class PartitionInfo:
     is_boot: bool = False
     is_system: bool = False
     offset_bytes: int = 0           # Byte offset on the physical disk
+    is_bitlocker: bool = False       # True if BitLocker-encrypted
+    bitlocker_status: str = ""       # "FullyEncrypted", "Off", etc.
 
 
 @dataclass
@@ -60,6 +62,14 @@ class DiskInfo:
     partitions: list[PartitionInfo] = field(default_factory=list)
     unallocated_bytes: int = 0      # Unallocated space on the disk
     is_4k_aligned: bool = True      # Whether all partitions are 4K-aligned
+    # --- v1.2 fields ---
+    temperature_celsius: int | None = None  # SMART temperature
+    power_on_hours: int | None = None       # Total hours powered on
+    is_bitlocker: bool = False              # True if any partition is BitLocker-encrypted
+    bitlocker_status: str = ""              # "FullyEncrypted", "PartiallyEncrypted", etc.
+    raid_type: str = ""                     # "Simple", "Mirror", "Parity", "Stripe", or ""
+    storage_pool: str = ""                  # Storage Spaces pool name, if any
+    firmware_version: str = ""              # Disk firmware version
 
 
 # ---------------------------------------------------------------------------

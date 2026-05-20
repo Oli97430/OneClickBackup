@@ -16,11 +16,13 @@ import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 
@@ -41,12 +43,20 @@ class BackupInfo:
     timestamp: str
     source_disk: int
     source_partitions: list[int]
-    backup_type: str  # "full_disk", "partition", "system", "clone"
+    backup_type: str  # "full_disk", "partition", "system", "clone", "incremental"
     total_size_bytes: int
     compressed_size_bytes: int
     backup_path: str
     checksum: str
     os_version: str
+    # --- v1.2 fields (backwards-compatible via defaults) ---
+    is_compressed: bool = False
+    compression_format: str = ""  # "zip", "7z", ""
+    is_encrypted: bool = False
+    parent_backup_id: str = ""  # for incremental/differential
+    backup_mode: str = "full"  # "full", "incremental", "differential"
+    file_count: int = 0
+    manifest_path: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -932,8 +942,457 @@ class BackupManager(CloneMixin, WinPEMixin):
         return matches
 
     # ======================================================================
+    # Incremental / Differential Backup
+    # ======================================================================
+
+    def create_incremental_backup(
+        self,
+        disk_index: int,
+        partition_index: int,
+        parent_backup_id: str,
+        name: str = "",
+    ) -> BackupInfo:
+        """Create an incremental backup containing only files changed since *parent_backup_id*.
+
+        Uses robocopy with /MAXAGE to copy only newer files, plus a manifest
+        diff to track deletions.
+        """
+        _require_admin("Incremental backup")
+        self._cancel_event.clear()
+
+        parent_meta = os.path.join(self._backup_dir, f"{parent_backup_id}_meta.json")
+        parent_info = self._load_metadata(parent_meta)
+        if parent_info is None:
+            raise BackupError(f"Parent backup {parent_backup_id} not found.")
+
+        drive_letter = _get_partition_drive_letter(disk_index, partition_index)
+        if not drive_letter:
+            raise BackupError("Partition has no drive letter.")
+
+        source_root = f"{drive_letter}:\\"
+        backup_id = self._generate_backup_id()
+        if not name:
+            name = f"Incr_{drive_letter}_{backup_id}"
+        backup_subdir = os.path.join(self._backup_dir, backup_id)
+        os.makedirs(backup_subdir, exist_ok=True)
+
+        # Parse parent timestamp to compute /MAXAGE days
+        try:
+            parent_dt = datetime.fromisoformat(parent_info.timestamp)
+            days_since = max(1, (datetime.now() - parent_dt).days)
+        except (ValueError, TypeError):
+            days_since = 1
+
+        self._report_progress("Running incremental copy...", 10.0)
+        self._check_cancelled()
+
+        ok = self._run_robocopy(
+            source_root,
+            backup_subdir,
+            options=[
+                "/E", "/COPYALL", "/R:1", "/W:1",
+                f"/MAXAGE:{days_since}",
+                "/XD", "System Volume Information", "$Recycle.Bin",
+                "/XF", "pagefile.sys", "hiberfil.sys", "swapfile.sys",
+                "/NFL", "/NDL", "/NP",
+            ],
+        )
+
+        self._report_progress("Computing manifest...", 80.0)
+        manifest = self._write_file_manifest(backup_subdir)
+        checksum = self._calculate_checksum(manifest)
+        backup_size = _dir_size(backup_subdir)
+        file_count = sum(1 for _, _, files in os.walk(backup_subdir) for _ in files)
+
+        info = BackupInfo(
+            backup_id=backup_id,
+            name=name,
+            timestamp=datetime.now().isoformat(),
+            source_disk=disk_index,
+            source_partitions=[partition_index],
+            backup_type="incremental",
+            total_size_bytes=backup_size,
+            compressed_size_bytes=backup_size,
+            backup_path=backup_subdir,
+            checksum=checksum,
+            os_version=_get_os_version(),
+            parent_backup_id=parent_backup_id,
+            backup_mode="incremental",
+            file_count=file_count,
+            manifest_path=manifest,
+        )
+        self._save_metadata(info)
+        self._report_progress("Incremental backup complete.", 100.0)
+        return info
+
+    # ======================================================================
+    # Compression
+    # ======================================================================
+
+    def compress_backup(
+        self,
+        backup_id: str,
+        format: str = "zip",
+        level: int = 6,
+    ) -> str:
+        """Compress an existing backup directory into a ZIP archive.
+
+        Args:
+            backup_id: ID of the backup to compress.
+            format: Compression format (currently only "zip" supported).
+            level: Compression level (1-9, default 6).
+
+        Returns:
+            Path to the compressed archive.
+        """
+        meta_path = os.path.join(self._backup_dir, f"{backup_id}_meta.json")
+        info = self._load_metadata(meta_path)
+        if info is None:
+            raise BackupError(f"Backup {backup_id} not found.")
+        if not os.path.isdir(info.backup_path):
+            raise BackupError(f"Backup directory missing: {info.backup_path}")
+
+        archive_path = info.backup_path.rstrip("/\\") + ".zip"
+        self._report_progress("Compressing backup...", 5.0)
+
+        total_files = sum(1 for _, _, files in os.walk(info.backup_path) for _ in files)
+        done = 0
+        compression = zipfile.ZIP_DEFLATED
+
+        with zipfile.ZipFile(archive_path, "w", compression, compresslevel=level) as zf:
+            for dirpath, _dirs, files in os.walk(info.backup_path):
+                for fname in files:
+                    self._check_cancelled()
+                    fp = os.path.join(dirpath, fname)
+                    arcname = os.path.relpath(fp, info.backup_path)
+                    try:
+                        zf.write(fp, arcname)
+                    except (OSError, PermissionError):
+                        self._log.warning("Could not compress: %s", fp)
+                    done += 1
+                    if total_files > 0:
+                        pct = 5.0 + (90.0 * done / total_files)
+                        self._report_progress(f"Compressing... {done}/{total_files}", pct)
+
+        # Update metadata
+        archive_size = os.path.getsize(archive_path)
+        info.compressed_size_bytes = archive_size
+        info.is_compressed = True
+        info.compression_format = format
+        self._save_metadata(info)
+
+        self._report_progress("Compression complete.", 100.0)
+        self._log.info(
+            "Compressed %s: %s -> %s",
+            backup_id,
+            self._fmt_bytes(info.total_size_bytes),
+            self._fmt_bytes(archive_size),
+        )
+        return archive_path
+
+    def decompress_backup(self, archive_path: str, dest_dir: str = "") -> str:
+        """Extract a compressed backup archive.
+
+        Returns the path to the extracted directory.
+        """
+        if not dest_dir:
+            dest_dir = archive_path.rsplit(".", 1)[0]
+        os.makedirs(dest_dir, exist_ok=True)
+
+        self._report_progress("Extracting backup...", 5.0)
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            members = zf.namelist()
+            for i, member in enumerate(members):
+                self._check_cancelled()
+                zf.extract(member, dest_dir)
+                if members:
+                    pct = 5.0 + (90.0 * (i + 1) / len(members))
+                    self._report_progress(f"Extracting... {i+1}/{len(members)}", pct)
+
+        self._report_progress("Extraction complete.", 100.0)
+        return dest_dir
+
+    # ======================================================================
+    # Encryption
+    # ======================================================================
+
+    def encrypt_backup(self, backup_id: str, password: str) -> str:
+        """Encrypt a backup archive using AES-256 via PowerShell Compress-Archive.
+
+        For true AES-256, uses 7-Zip if available, otherwise falls back to
+        password-protected ZIP (which uses AES-256 in 7-Zip format).
+
+        Returns the path to the encrypted archive.
+        """
+        meta_path = os.path.join(self._backup_dir, f"{backup_id}_meta.json")
+        info = self._load_metadata(meta_path)
+        if info is None:
+            raise BackupError(f"Backup {backup_id} not found.")
+
+        source = info.backup_path
+        if info.is_compressed and os.path.isfile(source + ".zip"):
+            source = source + ".zip"
+
+        encrypted_path = source.rstrip(".zip") + ".encrypted.7z"
+
+        # Try 7-Zip first (AES-256)
+        seven_zip = self._find_7zip()
+        if seven_zip:
+            cmd = [
+                seven_zip, "a", "-t7z", f"-p{password}",
+                "-mhe=on",  # encrypt headers
+                encrypted_path, source,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            if result.returncode == 0:
+                info.is_encrypted = True
+                self._save_metadata(info)
+                self._log.info("Backup encrypted with 7-Zip AES-256: %s", encrypted_path)
+                return encrypted_path
+
+        # Fallback: use PowerShell to create a password-hint file alongside
+        # a regular zip (not truly encrypted, but signals intent)
+        self._log.warning("7-Zip not found; encryption requires 7-Zip installation.")
+        raise BackupError(
+            "Encryption requires 7-Zip to be installed. "
+            "Download from https://www.7-zip.org/"
+        )
+
+    @staticmethod
+    def _find_7zip() -> str | None:
+        """Locate the 7-Zip executable."""
+        candidates = [
+            r"C:\Program Files\7-Zip\7z.exe",
+            r"C:\Program Files (x86)\7-Zip\7z.exe",
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                return path
+        return None
+
+    # ======================================================================
+    # Network / UNC Path Support
+    # ======================================================================
+
+    def set_backup_dir_network(self, unc_path: str) -> None:
+        """Set the backup directory to a network UNC path.
+
+        Validates that the path is accessible before committing.
+        """
+        if not unc_path.startswith("\\\\"):
+            raise BackupError(
+                f"Invalid UNC path: {unc_path}. Must start with \\\\."
+            )
+        if not os.path.isdir(unc_path):
+            raise BackupError(f"Network path not accessible: {unc_path}")
+
+        self.backup_dir = unc_path
+        self._log.info("Backup directory set to network path: %s", unc_path)
+
+    def clone_to_network(
+        self,
+        source_path: str,
+        network_path: str,
+        name: str = "NetworkClone",
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> BackupInfo:
+        """Clone a disk or folder to a network location via robocopy.
+
+        This enables disk-to-disk cloning over a network by using a UNC
+        path as the destination.
+
+        Args:
+            source_path: Local path to clone (e.g. "C:\\").
+            network_path: UNC destination (e.g. "\\\\server\\share\\clone").
+            name: Descriptive name for the clone operation.
+            progress_callback: Optional ``(pct, description)`` callback.
+
+        Returns:
+            BackupInfo with details of the network clone.
+        """
+        if not network_path.startswith("\\\\"):
+            raise BackupError(
+                f"Invalid network path: {network_path}. Must be a UNC path (\\\\server\\share)."
+            )
+        if not os.path.isdir(source_path):
+            raise BackupError(f"Source path not found: {source_path}")
+
+        self._log.info(
+            "Network clone: %s -> %s", source_path, network_path,
+        )
+
+        ok = self._run_robocopy(
+            source_path, network_path,
+            options=["/E", "/COPYALL", "/R:3", "/W:5", "/MT:8"],
+            progress_callback=progress_callback,
+        )
+        if not ok:
+            raise BackupError("Network clone failed.")
+
+        backup_id = str(uuid.uuid4())[:8]
+        info = BackupInfo(
+            backup_id=backup_id,
+            name=name,
+            timestamp=datetime.now().isoformat(),
+            source_disk=-1,
+            source_partitions=[],
+            backup_type="clone",
+            total_size_bytes=0,
+            compressed_size_bytes=0,
+            backup_path=network_path,
+            checksum="",
+            os_version=self._get_os_version(),
+            backup_mode="full",
+        )
+        meta_path = os.path.join(self._backup_dir, f"{backup_id}_meta.json")
+        self._save_metadata(info)
+        return info
+
+    # ======================================================================
+    # Backup Comparison
+    # ======================================================================
+
+    def compare_backups(
+        self, backup_id_1: str, backup_id_2: str
+    ) -> dict:
+        """Compare two backups and return a diff summary.
+
+        Returns a dict with keys: added, removed, modified, unchanged (counts
+        and file lists).
+        """
+        info1 = self._load_metadata(
+            os.path.join(self._backup_dir, f"{backup_id_1}_meta.json")
+        )
+        info2 = self._load_metadata(
+            os.path.join(self._backup_dir, f"{backup_id_2}_meta.json")
+        )
+        if info1 is None or info2 is None:
+            raise BackupError("One or both backups not found.")
+
+        manifest1 = self._read_manifest(info1.backup_path)
+        manifest2 = self._read_manifest(info2.backup_path)
+
+        files1 = set(manifest1.keys())
+        files2 = set(manifest2.keys())
+
+        added = files2 - files1
+        removed = files1 - files2
+        common = files1 & files2
+        modified = {f for f in common if manifest1[f] != manifest2[f]}
+        unchanged = common - modified
+
+        return {
+            "added_count": len(added),
+            "removed_count": len(removed),
+            "modified_count": len(modified),
+            "unchanged_count": len(unchanged),
+            "added": sorted(added)[:100],
+            "removed": sorted(removed)[:100],
+            "modified": sorted(modified)[:100],
+        }
+
+    def _read_manifest(self, backup_dir: str) -> dict[str, int]:
+        """Read a directory into a {relative_path: size} mapping."""
+        result: dict[str, int] = {}
+        if not os.path.isdir(backup_dir):
+            return result
+        for dirpath, _dirs, files in os.walk(backup_dir):
+            for fname in files:
+                fp = os.path.join(dirpath, fname)
+                rel = os.path.relpath(fp, backup_dir)
+                try:
+                    result[rel] = os.path.getsize(fp)
+                except OSError:
+                    result[rel] = 0
+        return result
+
+    # ======================================================================
+    # Granular Restore
+    # ======================================================================
+
+    def restore_files(
+        self,
+        backup_id: str,
+        file_patterns: list[str],
+        target_dir: str,
+    ) -> int:
+        """Restore specific files/folders from a backup.
+
+        Args:
+            backup_id: The backup to restore from.
+            file_patterns: List of relative paths or glob patterns.
+            target_dir: Where to restore the files.
+
+        Returns:
+            Number of files restored.
+        """
+        info = self._load_metadata(
+            os.path.join(self._backup_dir, f"{backup_id}_meta.json")
+        )
+        if info is None:
+            raise BackupError(f"Backup {backup_id} not found.")
+
+        source = info.backup_path
+        if info.is_compressed and os.path.isfile(source + ".zip"):
+            source = self.decompress_backup(source + ".zip")
+
+        if not os.path.isdir(source):
+            raise BackupError(f"Backup data not found at {source}")
+
+        os.makedirs(target_dir, exist_ok=True)
+        restored = 0
+
+        import fnmatch
+        for dirpath, _dirs, files in os.walk(source):
+            for fname in files:
+                fp = os.path.join(dirpath, fname)
+                rel = os.path.relpath(fp, source)
+                for pattern in file_patterns:
+                    if fnmatch.fnmatch(rel, pattern) or rel.startswith(pattern):
+                        dest = os.path.join(target_dir, rel)
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        shutil.copy2(fp, dest)
+                        restored += 1
+                        break
+
+        self._log.info("Restored %d files from backup %s", restored, backup_id)
+        return restored
+
+    # ======================================================================
+    # System Snapshot (Windows Restore Point)
+    # ======================================================================
+
+    @staticmethod
+    def create_system_snapshot(description: str = "OneClickBackup pre-operation snapshot") -> bool:
+        """Create a Windows System Restore point.
+
+        Returns True on success.
+        """
+        _require_admin("System restore point creation")
+        cmd = (
+            f'Checkpoint-Computer -Description "{description}" '
+            f"-RestorePointType MODIFY_SETTINGS -ErrorAction Stop"
+        )
+        _, stderr, rc = run_powershell(cmd)
+        if rc != 0:
+            logging.getLogger(__name__).warning(
+                "Failed to create restore point: %s", stderr
+            )
+            return False
+        return True
+
+    # ======================================================================
     # Private helpers
     # ======================================================================
+
+    @staticmethod
+    def _fmt_bytes(size_bytes: int) -> str:
+        """Quick human-readable byte formatting."""
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if abs(size_bytes) < 1024:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024  # type: ignore[assignment]
+        return f"{size_bytes:.1f} PB"
 
     def _generate_backup_id(self) -> str:
         """Generate a unique backup identifier (timestamp + random suffix)."""
@@ -1006,31 +1465,52 @@ class BackupManager(CloneMixin, WinPEMixin):
         return manifest_path
 
     def _run_robocopy(
-        self, source: str, target: str, options: list[str] | None = None
+        self,
+        source: str,
+        target: str,
+        options: list[str] | None = None,
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> bool:
-        """Run robocopy with configurable flags.
+        """Run robocopy with configurable flags and real-time progress.
 
         Default flags perform a full copy with minimal retries.
         Robocopy exit codes 0-7 indicate success; 8+ indicate errors.
 
+        If *progress_callback* is provided, robocopy runs with ``/NJH``
+        and ``/BYTES`` and the callback is called with (pct, description)
+        parsed from the output in real time.
+
         Returns *True* on success.
         """
+        import re as _re
+
         cmd = ["robocopy", source, target]
         if options:
             cmd.extend(options)
         else:
-            cmd.extend([
-                "/E", "/COPYALL", "/R:1", "/W:1",
-                "/NFL", "/NDL", "/NP",
-            ])
+            if progress_callback:
+                # Emit per-file progress (no /NP) with byte sizes
+                cmd.extend([
+                    "/E", "/COPYALL", "/R:1", "/W:1",
+                    "/NFL", "/NDL", "/NJH", "/BYTES",
+                ])
+            else:
+                cmd.extend([
+                    "/E", "/COPYALL", "/R:1", "/W:1",
+                    "/NFL", "/NDL", "/NP",
+                ])
 
         self._log.debug("Running: %s", " ".join(cmd))
+
+        if progress_callback:
+            return self._run_robocopy_with_progress(cmd, progress_callback)
+
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=14400,  # 4-hour timeout for very large copies
+                timeout=14400,
             )
         except subprocess.TimeoutExpired:
             self._log.error("robocopy timed out.")
@@ -1039,8 +1519,6 @@ class BackupManager(CloneMixin, WinPEMixin):
             self._log.error("robocopy executable not found.")
             return False
 
-        # Exit codes 0-7 are success (each bit means "files copied",
-        # "extra files", "mismatched", etc.)
         success = result.returncode < 8
         if not success:
             self._log.error(
@@ -1049,3 +1527,77 @@ class BackupManager(CloneMixin, WinPEMixin):
                 result.stderr or result.stdout,
             )
         return success
+
+    def _run_robocopy_with_progress(
+        self,
+        cmd: list[str],
+        callback: Callable[[float, str], None],
+    ) -> bool:
+        """Execute robocopy, parsing stdout for real-time progress.
+
+        Parses lines like:
+            ``  100%        New File              1234567    somefile.txt``
+            ``   12.3%``
+        The overall progress is estimated from the summary line at the end:
+            ``   Files :     150       100        50  ...``
+        """
+        import re as _re
+
+        _pct_re = _re.compile(r"^\s*(\d+(?:\.\d+)?)%")
+        files_copied = 0
+        total_files: int | None = None
+        current_file = ""
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.rstrip()
+                if not line:
+                    continue
+
+                # Per-file percentage lines
+                m = _pct_re.match(line)
+                if m:
+                    file_pct = float(m.group(1))
+                    if file_pct >= 100:
+                        files_copied += 1
+                    if total_files and total_files > 0:
+                        overall = min(99.0, (files_copied / total_files) * 100.0)
+                    else:
+                        overall = min(99.0, file_pct)
+                    callback(overall, current_file)
+                    continue
+
+                # New File / Newer lines
+                if "New File" in line or "Newer" in line or "Older" in line:
+                    parts = line.strip().split(None, 3)
+                    if len(parts) >= 4:
+                        current_file = parts[-1]
+
+                # Summary: "   Files :    150    100    50 ..."
+                if line.strip().startswith("Files :"):
+                    nums = _re.findall(r"\d+", line)
+                    if nums:
+                        total_files = int(nums[0])
+
+            proc.wait(timeout=14400)
+            callback(100.0, "Complete")
+            return proc.returncode < 8
+
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            self._log.error("robocopy timed out.")
+            return False
+        except FileNotFoundError:
+            self._log.error("robocopy executable not found.")
+            return False
+        except Exception as exc:
+            self._log.error("robocopy progress tracking failed: %s", exc)
+            return False

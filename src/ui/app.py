@@ -7,13 +7,15 @@ content area (one page per feature), and a bottom status bar.
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import tkinter as tk
 from tkinter import messagebox
 from typing import Optional
 
 import customtkinter as ctk
 
-from src.ui.widgets import COLORS, SidebarButton, StatusBar, OperationQueuePanel
+from src.ui.widgets import COLORS, COLORS_LIGHT, SidebarButton, StatusBar, OperationQueuePanel
 from src.utils.i18n import t, set_language, get_language, get_languages
 
 # ---------------------------------------------------------------------------
@@ -34,6 +36,8 @@ def _import_pages():
         BackupPage,
         RecoveryPage,
         AdvancedPage,
+        SchedulerPage,
+        HistoryPage,
     )
     return {
         "clone": ClonePage,
@@ -42,6 +46,8 @@ def _import_pages():
         "backup": BackupPage,
         "recovery": RecoveryPage,
         "advanced": AdvancedPage,
+        "scheduler": SchedulerPage,
+        "history": HistoryPage,
     }
 
 
@@ -54,9 +60,10 @@ class OneClickBackupApp(ctk.CTk):
     """Root application window."""
 
     APP_NAME = "OneClick Backup & Disk Manager"
-    APP_VERSION = "1.1.0"
+    APP_VERSION = "1.2.0"
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1024, 600)
+    _dark_mode: bool = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -88,6 +95,8 @@ class OneClickBackupApp(ctk.CTk):
 
         self._show_page("dashboard")
         self._bind_global_shortcuts()
+        self._start_usb_monitor()
+        self._check_for_updates_async()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -167,6 +176,8 @@ class OneClickBackupApp(ctk.CTk):
             ("backup", "💾"),
             ("convert", "🔄"),
             ("recovery", "🔍"),
+            ("scheduler", "📅"),
+            ("history", "📜"),
             ("advanced", "⚙️"),
         ]
 
@@ -249,11 +260,35 @@ class OneClickBackupApp(ctk.CTk):
             )
             self._elevate_btn.pack()
 
+        # Theme toggle button
+        self._theme_btn = ctk.CTkButton(
+            self._sidebar, text="🌙 Dark" if self._dark_mode else "☀️ Light",
+            width=130, height=28,
+            font=("Bahnschrift", 11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["hover"],
+            corner_radius=4,
+            command=self._toggle_theme,
+        )
+        self._theme_btn.grid(row=len(self._nav_items) + 4, column=0, padx=10, pady=(5, 5))
+
+        # Tray button
+        self._tray_btn = ctk.CTkButton(
+            self._sidebar, text="🔽 Minimize to Tray",
+            width=130, height=28,
+            font=("Bahnschrift", 11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["hover"],
+            corner_radius=4,
+            command=self._minimize_to_tray,
+        )
+        self._tray_btn.grid(row=len(self._nav_items) + 5, column=0, padx=10, pady=(0, 5))
+
         # Version label — monospace for technical feel
         ctk.CTkLabel(
             self._sidebar, text=f"v{self.APP_VERSION}",
             font=("Consolas", 9), text_color=COLORS["text_muted"],
-        ).grid(row=len(self._nav_items) + 4, column=0, pady=(0, 12))
+        ).grid(row=len(self._nav_items) + 6, column=0, pady=(0, 12))
 
         # ---- Content area (centre) ----
         self._content = ctk.CTkFrame(self, fg_color=COLORS["bg_dark"], corner_radius=0)
@@ -285,7 +320,7 @@ class OneClickBackupApp(ctk.CTk):
             kwargs: dict = {}
             if name in ("clone", "partitions", "convert", "advanced"):
                 kwargs["operation_manager"] = self._operation_manager
-            if name in ("clone", "backup", "advanced"):
+            if name in ("clone", "backup", "advanced", "scheduler"):
                 kwargs["backup_manager"] = self._backup_manager
             return cls(self._content, **kwargs)
         except Exception as exc:
@@ -382,7 +417,9 @@ class OneClickBackupApp(ctk.CTk):
             ("backup", "4"),
             ("convert", "5"),
             ("recovery", "6"),
-            ("advanced", "7"),
+            ("scheduler", "7"),
+            ("history", "8"),
+            ("advanced", "9"),
         ]
         for page_id, key in _page_keys:
             self.bind_all(
@@ -429,6 +466,124 @@ class OneClickBackupApp(ctk.CTk):
             run_as_admin()
         except Exception as exc:
             messagebox.showerror("Elevation failed", str(exc))
+
+    # ------------------------------------------------------------------
+    # Theme toggle (light/dark)
+    # ------------------------------------------------------------------
+
+    def _toggle_theme(self) -> None:
+        """Switch between dark and light themes."""
+        self._dark_mode = not self._dark_mode
+        mode = "dark" if self._dark_mode else "light"
+        ctk.set_appearance_mode(mode)
+        self._theme_btn.configure(text="🌙 Dark" if self._dark_mode else "☀️ Light")
+        # Rebuild pages with new colors
+        for pg in self._pages.values():
+            pg.destroy()
+        self._pages.clear()
+        self._show_page(self._current_page)
+        self._status_bar.set_status(f"Theme: {mode.capitalize()}")
+
+    # ------------------------------------------------------------------
+    # USB device monitoring
+    # ------------------------------------------------------------------
+
+    def _start_usb_monitor(self) -> None:
+        """Start a background thread that watches for USB drive insertions."""
+        self._known_drives: set[str] = set()
+        try:
+            import psutil
+            for p in psutil.disk_partitions():
+                self._known_drives.add(p.mountpoint)
+        except Exception:
+            pass
+        self._usb_poll_id = self.after(5000, self._poll_usb)
+
+    def _poll_usb(self) -> None:
+        """Check for new USB drives every 5 seconds."""
+        try:
+            import psutil
+            current = {p.mountpoint for p in psutil.disk_partitions()}
+            new_drives = current - self._known_drives
+            if new_drives:
+                for drive in new_drives:
+                    self._status_bar.set_status(
+                        f"USB drive detected: {drive}"
+                    )
+            self._known_drives = current
+        except Exception:
+            pass
+        self._usb_poll_id = self.after(5000, self._poll_usb)
+
+    # ------------------------------------------------------------------
+    # Auto-update check
+    # ------------------------------------------------------------------
+
+    def _check_for_updates_async(self) -> None:
+        """Check for updates in the background on startup."""
+        def _bg():
+            try:
+                from src.core.updater import AutoUpdater
+                updater = AutoUpdater(self.APP_VERSION)
+                info = updater.check_for_update()
+                if info.is_update_available:
+                    self.after(0, lambda: self._notify_update(info))
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _notify_update(self, info) -> None:
+        """Show update notification in status bar."""
+        self._status_bar.set_status(
+            f"Update available: {info.latest_version} (current: {info.current_version})"
+        )
+
+    # ------------------------------------------------------------------
+    # Portable mode
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def is_portable() -> bool:
+        """Check if running in portable mode (settings file next to EXE)."""
+        exe_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.isfile(os.path.join(exe_dir, ".portable"))
+
+    # ------------------------------------------------------------------
+    # Tray icon (minimize to system tray)
+    # ------------------------------------------------------------------
+
+    def _minimize_to_tray(self) -> None:
+        """Minimize window to system tray (if pystray is available)."""
+        try:
+            import pystray
+            from PIL import Image
+            icon_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "assets", "logo.png"
+            )
+            if os.path.isfile(icon_path):
+                image = Image.open(icon_path).resize((64, 64))
+            else:
+                image = Image.new("RGB", (64, 64), "#6366f1")
+
+            def on_open(icon, item):
+                icon.stop()
+                self.after(0, self.deiconify)
+
+            def on_quit(icon, item):
+                icon.stop()
+                self.after(0, self.destroy)
+
+            menu = pystray.Menu(
+                pystray.MenuItem("Open", on_open, default=True),
+                pystray.MenuItem("Quit", on_quit),
+            )
+            self.withdraw()
+            icon = pystray.Icon("OneClickBackup", image, "OneClickBackup", menu)
+            threading.Thread(target=icon.run, daemon=True).start()
+        except ImportError:
+            # pystray not available — just minimize normally
+            self.iconify()
 
     def _on_close(self) -> None:
         if self._operation_manager:

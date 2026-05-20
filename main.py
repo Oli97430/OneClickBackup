@@ -67,6 +67,28 @@ def _check_dependencies() -> list[str]:
 def main() -> None:
     _log = logging.getLogger(__name__)
 
+    # Install crash handler early
+    try:
+        from src.utils.crash_report import install_crash_handler
+        install_crash_handler()
+    except Exception:
+        pass
+
+    # CLI mode: if command-line arguments are provided, run in CLI mode
+    import sys as _sys
+    if len(_sys.argv) > 1:
+        try:
+            from src.utils.cli import run_cli
+            exit_code = run_cli(_sys.argv[1:])
+            _sys.exit(exit_code)
+        except ImportError:
+            _log.warning("CLI module not available.")
+        except SystemExit:
+            raise
+        except Exception as exc:
+            _log.error("CLI error: %s", exc)
+            _sys.exit(1)
+
     from src.utils.admin import is_admin
 
     if not is_admin():

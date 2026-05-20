@@ -56,6 +56,9 @@ class TestBackupInfo(unittest.TestCase):
             "backup_id", "name", "timestamp", "source_disk",
             "source_partitions", "backup_type", "total_size_bytes",
             "compressed_size_bytes", "backup_path", "checksum", "os_version",
+            # New fields added in v1.2.0
+            "is_compressed", "compression_format", "is_encrypted",
+            "parent_backup_id", "backup_mode", "file_count", "manifest_path",
         }
         self.assertEqual(set(vars(info).keys()), expected_fields)
 

@@ -279,6 +279,22 @@ class DiskCard(ctk.CTkFrame):
         tags = [media_type, interface, partition_style]
         if not aligned:
             tags.append("Not 4K-aligned")
+        # RAID info (#21)
+        raid_type = getattr(d, "raid_type", "") or ""
+        if raid_type:
+            tags.append(f"RAID {raid_type}")
+        # BitLocker status
+        is_bitlocker = getattr(d, "is_bitlocker", False)
+        if is_bitlocker:
+            tags.append("🔒 BitLocker")
+        # Temperature
+        temp = getattr(d, "temperature_celsius", None)
+        if temp is not None:
+            tags.append(f"{temp}°C")
+        # Firmware
+        fw = getattr(d, "firmware_version", "") or ""
+        if fw:
+            tags.append(f"FW: {fw}")
         for tag_text in tags:
             tag = ctk.CTkLabel(
                 meta, text=tag_text,
