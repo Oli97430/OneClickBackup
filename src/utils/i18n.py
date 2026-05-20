@@ -44,13 +44,14 @@ def _detect_system_locale() -> str:
                 return lang_prefix
     except Exception:
         pass
-    # Fallback: try the default locale (Windows-specific)
+    # Fallback: try Windows-specific environment variables
     try:
-        loc = locale.getdefaultlocale()[0]  # type: ignore[deprecated]
-        if loc:
-            lang_prefix = loc.split("_")[0].lower()
-            if lang_prefix in LANGUAGES:
-                return lang_prefix
+        for env_var in ("LANG", "LANGUAGE", "LC_ALL", "LC_MESSAGES"):
+            val = os.environ.get(env_var, "")
+            if val:
+                lang_prefix = val.split("_")[0].split(".")[0].lower()
+                if lang_prefix in LANGUAGES:
+                    return lang_prefix
     except Exception:
         pass
     return "en"

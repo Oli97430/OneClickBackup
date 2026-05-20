@@ -92,9 +92,12 @@ class OperationManager:
 
     def remove_operation(self, index: int) -> None:
         """Remove operation from pending queue by index."""
-        if index < 0 or index >= len(self._pending):
+        count = len(self._pending)
+        if index < 0 or index >= count:
+            if count == 0:
+                raise IndexError("No pending operations to remove.")
             raise IndexError(
-                f"Operation index {index} out of range (0-{len(self._pending) - 1})"
+                f"Operation index {index} out of range (0-{count - 1})"
             )
         removed = self._pending.pop(index)
         self._log.info("Removed queued operation: %s", removed.description)

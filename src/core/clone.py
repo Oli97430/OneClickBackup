@@ -106,7 +106,6 @@ class CloneMixin:
         if not _disk_exists(target_disk):
             raise BackupError(f"Target disk {target_disk} does not exist.")
 
-        _source_size = _get_disk_size(source_disk)  # noqa: F841 — kept for future use
         target_size = _get_disk_size(target_disk)
 
         src_partitions = _get_disk_partitions(source_disk)
@@ -151,10 +150,11 @@ class CloneMixin:
             # Determine partition characteristics
             is_efi = "efi" in ptype or "c12a7328" in gpt_type
             is_msr = "msr" in ptype or "reserved" in ptype or "e3c9e316" in gpt_type
-            _is_recovery = "recovery" in ptype  # noqa: F841
+            is_recovery = "recovery" in ptype
 
             # Last partition: use remaining space if resize_to_fit
-            use_max = resize_to_fit and (idx == total_parts - 1) and not is_efi and not is_msr
+            use_max = (resize_to_fit and (idx == total_parts - 1)
+                       and not is_efi and not is_msr and not is_recovery)
 
             fs = "FAT32" if is_efi else "NTFS"
 

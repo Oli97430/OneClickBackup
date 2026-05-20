@@ -217,7 +217,7 @@ def _gather_system_info() -> str:
         f"  OS           : {platform.system()} {platform.version()}",
         f"  OS Release   : {platform.release()}",
         f"  Architecture : {platform.machine()}",
-        f"  Python       : {platform.python_version()} ({sys.executable})",
+        f"  Python       : {platform.python_version()} ({_redact_paths(sys.executable)})",
         f"  Platform     : {platform.platform()}",
     ]
 

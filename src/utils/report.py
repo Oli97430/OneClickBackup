@@ -63,7 +63,9 @@ class ReportGenerator:
             partition_sections=partition_sections,
         )
 
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as fh:
             fh.write(content)
 
@@ -145,7 +147,9 @@ class ReportGenerator:
 
         text = "\n".join(lines) + "\n"
 
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        out_dir = os.path.dirname(os.path.abspath(output_path))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as fh:
             fh.write(text)
 
