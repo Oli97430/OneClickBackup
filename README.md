@@ -41,17 +41,21 @@
 | **Advanced** | WinPE bootable USB, defragmentation, HTML reports, auto-updater |
 | **Accessibility** | Dark / light / high-contrast themes, Tab-focusable, WCAG compliance |
 | **i18n** | 5 languages (EN, FR, ES, DE, AR with RTL), instant hot-switching |
-| **Distribution** | Standalone EXE, Inno Setup installer, CLI mode, portable mode, system tray |
+| **Distribution** | Windows installer (Inno Setup), standalone EXE, CLI mode, portable mode, system tray |
 
 ---
 
 ## Quick Start
 
-### Option A: Standalone Executable
+### Option A: Windows Installer (Recommended)
 
-Download `OneClickBackup.exe` from the [Releases](../../releases/latest) page. No Python required.
+Download `OneClickBackup_Setup_1.3.0.exe` from the [Releases](../../releases/latest) page. Installs to Program Files with Start Menu shortcut, desktop icon, and uninstaller.
 
-### Option B: Run from Source
+### Option B: Portable Executable
+
+Download `OneClickBackup.exe` from the [Releases](../../releases/latest) page. No installation required — run from anywhere.
+
+### Option C: Run from Source
 
 ```bash
 git clone https://github.com/Oli97430/OneClickBackup.git
@@ -60,14 +64,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Option C: Build the EXE
+### Option D: Build the EXE
 
 ```bash
 python build.py           # Release build (no console)
 python build.py --debug   # Debug build (with console)
 ```
 
-### Option D: CLI Mode
+### Option E: CLI Mode
 
 ```bash
 python main.py --cli backup --type system --dest E:\Backups
