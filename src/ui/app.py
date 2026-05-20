@@ -466,6 +466,13 @@ class OneClickBackupApp(ctk.CTk):
         try:
             from src.utils.admin import run_as_admin
             run_as_admin()
+            # run_as_admin calls sys.exit(0) on success, but in case
+            # mainloop keeps running, force-destroy the window.
+            self.destroy()
+        except SystemExit:
+            # sys.exit(0) raises SystemExit — let it propagate to close
+            self.destroy()
+            raise
         except Exception as exc:
             messagebox.showerror("Elevation failed", str(exc))
 

@@ -30,26 +30,44 @@ def run_as_admin() -> None:
 
     Uses ShellExecuteW to trigger a UAC elevation prompt.
     The current process will exit after launching the elevated one.
+
+    Handles both frozen EXE (PyInstaller) and source-run modes:
+    - Frozen: ``ShellExecuteW("runas", "OneClickBackup.exe", "")``
+    - Source: ``ShellExecuteW("runas", "python.exe", '"main.py" ...')``
+
+    Raises:
+        OSError: If the UAC prompt is cancelled or elevation fails.
     """
     if is_admin():
         return
 
-    script = sys.argv[0]
-    params = subprocess.list2cmdline(sys.argv[1:])
+    if getattr(sys, "frozen", False):
+        # Frozen EXE: sys.executable IS the app — no script argument needed
+        exe = sys.executable
+        params = subprocess.list2cmdline(sys.argv[1:])
+    else:
+        # Source run: python.exe "main.py" [args...]
+        exe = sys.executable
+        params = subprocess.list2cmdline(sys.argv)
 
-    try:
-        ctypes.windll.shell32.ShellExecuteW(
-            None,
-            "runas",
-            sys.executable,
-            f'"{script}" {params}',
-            None,
-            1,  # SW_SHOWNORMAL
-        )
-    except OSError as e:
-        _log.error("Failed to elevate privileges: %s", e)
-        sys.exit(1)
+    _log.info("Requesting elevation: %s %s", exe, params)
 
+    # ShellExecuteW returns an HINSTANCE value:
+    #   > 32 = success, <= 32 = error
+    ret = ctypes.windll.shell32.ShellExecuteW(
+        None,
+        "runas",
+        exe,
+        params,
+        None,
+        1,  # SW_SHOWNORMAL
+    )
+
+    if ret <= 32:
+        _log.error("ShellExecuteW failed with code %d", ret)
+        raise OSError(f"Failed to elevate privileges (error code {ret})")
+
+    _log.info("Elevated process launched, shutting down current instance.")
     sys.exit(0)
 
 
