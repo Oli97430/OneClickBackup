@@ -9,13 +9,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import tkinter as tk
 from tkinter import messagebox
 from typing import Optional
 
 import customtkinter as ctk
 
-from src.ui.widgets import COLORS, COLORS_LIGHT, COLORS_HIGH_CONTRAST, SidebarButton, StatusBar, OperationQueuePanel
+from src.ui.widgets import COLORS, SidebarButton, StatusBar
 from src.utils.i18n import t, set_language, get_language, get_languages
 
 # ---------------------------------------------------------------------------

@@ -342,7 +342,7 @@ class DiskBar(ctk.CTkFrame):
 
     # -- drawing ------------------------------------------------------------
 
-    def _draw(self) -> None:
+    def _draw(self, no_color_updates: bool = False) -> None:  # type: ignore[override]
         self._canvas.delete("all")
         self._segments.clear()
 

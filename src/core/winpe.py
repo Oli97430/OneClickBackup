@@ -7,10 +7,13 @@ and related helpers.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import typing
 
 from src.utils.helpers import run_diskpart, run_powershell
 
@@ -26,6 +29,12 @@ class WinPEMixin:
     Expects the host class to provide ``_log``, ``_report_progress``,
     ``_check_cancelled``, and ``_cancel_event``.
     """
+
+    if typing.TYPE_CHECKING:
+        _cancel_event: threading.Event
+        _log: logging.Logger
+
+        def _report_progress(self, message: str, percent: float) -> None: ...
 
     # ======================================================================
     # WinPE Operations
@@ -230,7 +239,7 @@ class WinPEMixin:
             "format fs=fat32 quick label=WINPE",
             f"assign letter={target_letter}",
         ]
-        dp_out, dp_err, dp_rc = run_diskpart(dp_script)
+        _, dp_err, dp_rc = run_diskpart(dp_script)
         if dp_rc != 0:
             raise BackupError(f"diskpart failed: {dp_err}")
 

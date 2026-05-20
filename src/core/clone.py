@@ -8,7 +8,11 @@ Provides :class:`CloneMixin` which is mixed into
 from __future__ import annotations
 
 import json
+import logging
 import os
+import subprocess
+import threading
+import typing
 
 from src.utils.helpers import format_bytes, run_diskpart, run_powershell
 
@@ -34,6 +38,28 @@ class CloneMixin:
     ``_check_cancelled``, ``_cancel_event``, ``_run_robocopy``, and
     ``_run_cancellable``.
     """
+
+    if typing.TYPE_CHECKING:
+        # Provided by BackupManager at runtime
+        _cancel_event: threading.Event
+        _log: logging.Logger
+
+        def _report_progress(self, message: str, percent: float) -> None: ...
+        def _check_cancelled(self) -> None: ...
+        def _run_robocopy(
+            self,
+            source: str,
+            target: str,
+            options: list[str] | None = None,
+            progress_callback: typing.Callable[[float, str], None] | None = None,
+        ) -> bool: ...
+        def _run_cancellable(
+            self,
+            cmd: list[str],
+            *,
+            timeout: int = 7200,
+            poll_interval: float = 2.0,
+        ) -> subprocess.CompletedProcess[str]: ...
 
     # ======================================================================
     # Clone Operations
@@ -77,7 +103,7 @@ class CloneMixin:
         if not _disk_exists(target_disk):
             raise BackupError(f"Target disk {target_disk} does not exist.")
 
-        source_size = _get_disk_size(source_disk)
+        _source_size = _get_disk_size(source_disk)  # noqa: F841 — kept for future use
         target_size = _get_disk_size(target_disk)
 
         src_partitions = _get_disk_partitions(source_disk)
@@ -122,7 +148,7 @@ class CloneMixin:
             # Determine partition characteristics
             is_efi = "efi" in ptype or "c12a7328" in gpt_type
             is_msr = "msr" in ptype or "reserved" in ptype or "e3c9e316" in gpt_type
-            is_recovery = "recovery" in ptype
+            _is_recovery = "recovery" in ptype  # noqa: F841
 
             # Last partition: use remaining space if resize_to_fit
             use_max = resize_to_fit and (idx == total_parts - 1) and not is_efi and not is_msr

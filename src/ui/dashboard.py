@@ -31,8 +31,8 @@ except ImportError:
 
 # Import shared widgets and utilities (single source of truth)
 from src.ui.widgets import (
-    COLORS, PARTITION_COLORS, _lighten, _darken, _canvas_rounded_rect,
-    format_bytes, get_fs_color, _get, _health_color,
+    COLORS, _lighten, _health_color,
+    format_bytes,
 )
 
 
@@ -91,11 +91,11 @@ class DiskBar(ctk.CTkFrame):
             highlightthickness=0, bd=0,
         )
         self._canvas.pack(fill="both", expand=True, padx=2, pady=2)
-        self._canvas.bind("<Configure>", self._draw)
+        self._canvas.bind("<Configure>", lambda _event: self._draw())
 
     # ---- drawing --------------------------------------------------------
 
-    def _draw(self, event=None, **kwargs):
+    def _draw(self, no_color_updates: bool = False, **kwargs):  # type: ignore[override]
         """Redraw the partition segments on the canvas."""
         self._canvas.delete("all")
         width = self._canvas.winfo_width()
@@ -165,11 +165,12 @@ class DiskBar(ctk.CTkFrame):
                 )
 
             # Bind click
-            if self._on_partition_click is not None:
+            click_fn = self._on_partition_click
+            if click_fn is not None:
                 disk_index = getattr(self._disk_info, "index", 0)
                 self._canvas.tag_bind(
                     rect_id, "<Button-1>",
-                    lambda e, di=disk_index, pi=part: self._on_partition_click(di, pi),
+                    lambda e, di=disk_index, pi=part, fn=click_fn: fn(di, pi),
                 )
 
             x += seg_w + gap

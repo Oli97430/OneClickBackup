@@ -16,13 +16,12 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
 import zipfile
 from collections.abc import Callable
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -1241,7 +1240,7 @@ class BackupManager(CloneMixin, WinPEMixin):
             compressed_size_bytes=0,
             backup_path=network_path,
             checksum="",
-            os_version=self._get_os_version(),
+            os_version=_get_os_version(),
             backup_mode="full",
         )
         meta_path = os.path.join(self._backup_dir, f"{backup_id}_meta.json")
@@ -1482,8 +1481,6 @@ class BackupManager(CloneMixin, WinPEMixin):
 
         Returns *True* on success.
         """
-        import re as _re
-
         cmd = ["robocopy", source, target]
         if options:
             cmd.extend(options)
@@ -1548,6 +1545,7 @@ class BackupManager(CloneMixin, WinPEMixin):
         total_files: int | None = None
         current_file = ""
 
+        proc: subprocess.Popen[str] | None = None
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -1592,7 +1590,8 @@ class BackupManager(CloneMixin, WinPEMixin):
             return proc.returncode < 8
 
         except subprocess.TimeoutExpired:
-            proc.kill()
+            if proc is not None:
+                proc.kill()
             self._log.error("robocopy timed out.")
             return False
         except FileNotFoundError:

@@ -12,7 +12,6 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from typing import Any, Callable, Optional
 
 import customtkinter as ctk
 
@@ -38,12 +37,12 @@ except ImportError:
         "unallocated_color": "#1e293b", "unknown_color": "#475569",
     }
 
-    def format_bytes(n: int) -> str:
+    def format_bytes(size: int) -> str:
         for u in ("B", "KB", "MB", "GB", "TB"):
-            if abs(n) < 1024:
-                return f"{n:.1f} {u}"
-            n /= 1024  # type: ignore[assignment]
-        return f"{n:.1f} PB"
+            if abs(size) < 1024:
+                return f"{size:.1f} {u}"
+            size /= 1024  # type: ignore[assignment]
+        return f"{size:.1f} PB"
 
     ConfirmDialog = None  # type: ignore[assignment,misc]
     ProgressDialog = None  # type: ignore[assignment,misc]
@@ -497,6 +496,8 @@ class PartitionPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
 
         # Update table
         for w in list(self._table_frame.winfo_children()):
+            if not isinstance(w, tk.Widget):
+                continue
             info = w.grid_info()
             if info and int(info.get("row", 0)) > 0:
                 w.destroy()
@@ -1204,7 +1205,7 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
                     # Desktop notification
                     try:
                         from src.utils.notifications import NotificationManager
-                        NotificationManager().notify_backup_complete(name)
+                        NotificationManager().notify_backup_complete(name, size_bytes=0)
                     except Exception:
                         pass
                 except Exception as e:
@@ -1478,9 +1479,9 @@ class RecoveryPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
                 from src.core.recovery import PartitionRecovery
                 recovery = PartitionRecovery()
                 if is_deep:
-                    results = recovery.deep_scan(disk_idx, progress_callback=_update_progress)
+                    results = recovery.deep_scan(disk_idx, callback=_update_progress)
                 else:
-                    results = recovery.quick_scan(disk_idx, progress_callback=_update_progress)
+                    results = recovery.quick_scan(disk_idx, callback=_update_progress)
 
                 parts = []
                 for r in results:
@@ -2342,10 +2343,9 @@ class SchedulerPage(_KeyboardAccessMixin, ctk.CTkFrame):
                 scheduler = BackupScheduler()
                 scheduler.schedule_backup(
                     name=name,
-                    source_path=source,
-                    destination_path=dest,
+                    backup_type="full_disk",
                     schedule_type=freq,
-                    time=time_val,
+                    time_str=time_val,
                 )
                 self.after(0, lambda: messagebox.showinfo(
                     "Scheduler", f"Schedule '{name}' created."))

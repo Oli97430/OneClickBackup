@@ -16,7 +16,6 @@ import locale
 import logging
 import os
 import threading
-from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
