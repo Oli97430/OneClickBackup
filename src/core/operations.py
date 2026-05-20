@@ -610,23 +610,41 @@ class OperationManager:
     # Individual operation executors
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ensure_int(value: object, name: str) -> int:
+        """Coerce *value* to int, raising if it cannot be safely converted.
+
+        This is a defence-in-depth measure: all queue_* methods already
+        validate inputs, but the executors re-check before interpolating
+        values into shell commands.
+        """
+        v = int(value)  # type: ignore[arg-type]
+        if str(v) != str(value).strip():
+            raise ValueError(f"{name} is not a plain integer: {value!r}")
+        return v
+
     def _exec_resize(self, op: PendingOperation) -> tuple[bool, str]:
         """Resize a partition via PowerShell Resize-Partition."""
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
+        size = self._ensure_int(p["new_size_bytes"], "new_size_bytes")
         cmd = (
-            f"Resize-Partition -DiskNumber {op.disk_index} "
-            f"-PartitionNumber {p['partition_index']} "
-            f"-Size {p['new_size_bytes']}"
+            f"Resize-Partition -DiskNumber {disk} "
+            f"-PartitionNumber {part} "
+            f"-Size {size}"
         )
         return self._execute_powershell(cmd)
 
     def _exec_create(self, op: PendingOperation) -> tuple[bool, str]:
         """Create a partition via diskpart, then format it."""
         p = op.params
-        size_mb = p["size_bytes"] // (1024 * 1024)
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        # Round to nearest MB (avoids losing up to 1 MB via truncation)
+        size_mb = max(1, round(int(p["size_bytes"]) / (1024 * 1024)))
 
         lines = [
-            f"select disk {op.disk_index}",
+            f"select disk {disk}",
             f"create partition primary size={size_mb}",
         ]
 
@@ -647,9 +665,11 @@ class OperationManager:
     def _exec_delete(self, op: PendingOperation) -> tuple[bool, str]:
         """Delete a partition via diskpart."""
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
         lines = [
-            f"select disk {op.disk_index}",
-            f"select partition {p['partition_index']}",
+            f"select disk {disk}",
+            f"select partition {part}",
             "delete partition override",
         ]
         return self._execute_diskpart(lines)
@@ -657,6 +677,8 @@ class OperationManager:
     def _exec_format(self, op: PendingOperation) -> tuple[bool, str]:
         """Format a partition via diskpart."""
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
         fmt_cmd = f"format fs={p['file_system']}"
         if p["quick"]:
             fmt_cmd += " quick"
@@ -666,8 +688,8 @@ class OperationManager:
                 fmt_cmd += f' label="{safe_label}"'
 
         lines = [
-            f"select disk {op.disk_index}",
-            f"select partition {p['partition_index']}",
+            f"select disk {disk}",
+            f"select partition {part}",
             fmt_cmd,
         ]
         return self._execute_diskpart(lines)
@@ -682,10 +704,14 @@ class OperationManager:
         part1 = p["partition_index_1"]
         part2 = p["partition_index_2"]
 
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part1 = self._ensure_int(part1, "partition_index_1")
+        part2 = self._ensure_int(part2, "partition_index_2")
+
         # Phase 1: Delete the second partition
-        self._log.info("Merge phase 1: deleting partition %d on disk %d", part2, op.disk_index)
+        self._log.info("Merge phase 1: deleting partition %d on disk %d", part2, disk)
         delete_lines = [
-            f"select disk {op.disk_index}",
+            f"select disk {disk}",
             f"select partition {part2}",
             "delete partition override",
         ]
@@ -694,9 +720,9 @@ class OperationManager:
             return False, f"Merge failed at delete phase: {msg}"
 
         # Phase 2: Extend the first partition into the freed space
-        self._log.info("Merge phase 2: extending partition %d on disk %d", part1, op.disk_index)
+        self._log.info("Merge phase 2: extending partition %d on disk %d", part1, disk)
         extend_lines = [
-            f"select disk {op.disk_index}",
+            f"select disk {disk}",
             f"select partition {part1}",
             "extend",
         ]
@@ -714,13 +740,15 @@ class OperationManager:
 
     def _exec_convert_mbr_gpt(self, op: PendingOperation) -> tuple[bool, str]:
         """Convert MBR to GPT using mbr2gpt.exe (non-destructive)."""
-        cmd = f"& mbr2gpt.exe /convert /disk:{op.disk_index} /allowFullOS"
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        cmd = f"& mbr2gpt.exe /convert /disk:{disk} /allowFullOS"
         return self._execute_powershell(cmd)
 
     def _exec_convert_gpt_mbr(self, op: PendingOperation) -> tuple[bool, str]:
         """Convert GPT to MBR using diskpart. Disk must be empty."""
+        disk = self._ensure_int(op.disk_index, "disk_index")
         lines = [
-            f"select disk {op.disk_index}",
+            f"select disk {disk}",
             "convert mbr",
         ]
         return self._execute_diskpart(lines)
@@ -728,9 +756,11 @@ class OperationManager:
     def _exec_set_active(self, op: PendingOperation) -> tuple[bool, str]:
         """Set a partition as active (MBR only) using diskpart."""
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
         lines = [
-            f"select disk {op.disk_index}",
-            f"select partition {p['partition_index']}",
+            f"select disk {disk}",
+            f"select partition {part}",
             "active",
         ]
         return self._execute_diskpart(lines)
@@ -741,11 +771,16 @@ class OperationManager:
         Removes any existing letter assignment, then assigns the new one.
         """
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
+        letter = p["new_letter"]
+        if len(letter) != 1 or not letter.isalpha():
+            return False, f"Invalid drive letter: {letter!r}"
         lines = [
-            f"select disk {op.disk_index}",
-            f"select partition {p['partition_index']}",
+            f"select disk {disk}",
+            f"select partition {part}",
             "remove",
-            f"assign letter={p['new_letter']}",
+            f"assign letter={letter.upper()}",
         ]
         return self._execute_diskpart(lines)
 
@@ -756,9 +791,11 @@ class OperationManager:
         a multiple of 4096 bytes.
         """
         p = op.params
+        disk = self._ensure_int(op.disk_index, "disk_index")
+        part = self._ensure_int(p["partition_index"], "partition_index")
         cmd = (
-            f"Get-Partition -DiskNumber {op.disk_index} "
-            f"-PartitionNumber {p['partition_index']} | "
+            f"Get-Partition -DiskNumber {disk} "
+            f"-PartitionNumber {part} | "
             f"Select-Object -ExpandProperty Offset"
         )
         ok, output = self._execute_powershell(cmd)

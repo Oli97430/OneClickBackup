@@ -8,8 +8,6 @@ constructor arguments so they can queue / execute real operations.
 from __future__ import annotations
 
 import logging
-import os
-import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -22,10 +20,6 @@ from src.utils.i18n import t
 # ---------------------------------------------------------------------------
 # Project imports (with graceful fallbacks)
 # ---------------------------------------------------------------------------
-
-_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _root not in sys.path:
-    sys.path.insert(0, _root)
 
 try:
     from src.ui.widgets import COLORS, format_bytes, ConfirmDialog, ProgressDialog, DiskBar, Tooltip

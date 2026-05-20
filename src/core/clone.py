@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 
 from src.utils.helpers import format_bytes, run_diskpart, run_powershell
 
@@ -409,9 +408,7 @@ class CloneMixin:
             cmd = ["bcdboot", windows_dir, "/f", "ALL"]
 
         self._log.info("Fixing boot config: %s", " ".join(cmd))
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120,
-        )
+        result = self._run_cancellable(cmd, timeout=120)
         if result.returncode != 0:
             self._log.error(
                 "bcdboot failed (exit %d): %s",

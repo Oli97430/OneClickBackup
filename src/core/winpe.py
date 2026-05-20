@@ -140,31 +140,45 @@ class WinPEMixin:
 
         if os.path.isfile(wim_path):
             self._report_progress("Mounting boot.wim...", 35.0)
-            subprocess.run(
+            mount_result = subprocess.run(
                 ["dism", "/Mount-Wim", f"/WimFile:{wim_path}",
                  "/Index:1", f"/MountDir:{mount_dir}"],
                 capture_output=True, text=True, timeout=300,
             )
+            if mount_result.returncode != 0:
+                self._log.warning(
+                    "dism mount failed (exit %d): %s",
+                    mount_result.returncode,
+                    mount_result.stderr,
+                )
+            else:
+                # Only customise if mount succeeded
+                # Copy our tool into the WinPE image
+                tool_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                tool_dst = os.path.join(mount_dir, "OneClickBackup")
+                if os.path.isdir(tool_src):
+                    shutil.copytree(tool_src, tool_dst, dirs_exist_ok=True)
 
-            # Copy our tool into the WinPE image
-            tool_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            tool_dst = os.path.join(mount_dir, "OneClickBackup")
-            if os.path.isdir(tool_src):
-                shutil.copytree(tool_src, tool_dst, dirs_exist_ok=True)
+                # Create autorun startnet.cmd addition
+                startnet = os.path.join(
+                    mount_dir, "Windows", "System32", "startnet.cmd"
+                )
+                if os.path.isfile(startnet):
+                    with open(startnet, "a") as f:
+                        f.write("\r\necho OneClickBackup WinPE Environment Ready\r\n")
 
-            # Create autorun startnet.cmd addition
-            startnet = os.path.join(
-                mount_dir, "Windows", "System32", "startnet.cmd"
-            )
-            if os.path.isfile(startnet):
-                with open(startnet, "a") as f:
-                    f.write("\r\necho OneClickBackup WinPE Environment Ready\r\n")
-
+            # Always attempt unmount (even after failed mount, to clean up)
             self._report_progress("Unmounting boot.wim...", 55.0)
-            subprocess.run(
+            unmount_result = subprocess.run(
                 ["dism", "/Unmount-Wim", f"/MountDir:{mount_dir}", "/Commit"],
                 capture_output=True, text=True, timeout=300,
             )
+            if unmount_result.returncode != 0:
+                self._log.warning(
+                    "dism unmount failed (exit %d): %s",
+                    unmount_result.returncode,
+                    unmount_result.stderr,
+                )
 
         # Write to USB using MakeWinPEMedia (requires ADK environment)
         self._report_progress("Writing to USB...", 70.0)

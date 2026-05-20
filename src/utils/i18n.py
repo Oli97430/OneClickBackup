@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import json
 import locale
+import logging
 import os
 import threading
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # State
@@ -901,8 +904,8 @@ def load_preference() -> None:
                 with _lang_lock:
                     _current_lang = lang
                 return
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.debug("Could not load language preference from %s: %s", _SETTINGS_FILE, exc)
     # No saved preference -- fall back to system locale detection
     detected = _detect_system_locale()
     with _lang_lock:

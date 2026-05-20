@@ -79,7 +79,22 @@ def main() -> None:
     if missing:
         _log.error("Missing dependencies: %s", ", ".join(missing))
         _log.error("Run:  pip install -r requirements.txt")
-        input("Press Enter to exit...")
+        # In --noconsole PyInstaller builds, input() blocks forever
+        # because there is no console. Use a messagebox if tkinter is
+        # available, otherwise just exit.
+        try:
+            import tkinter as _tk
+            from tkinter import messagebox as _mb
+            _root = _tk.Tk()
+            _root.withdraw()
+            _mb.showerror(
+                "Missing Dependencies",
+                f"Required packages not found:\n{', '.join(missing)}\n\n"
+                "Run:  pip install -r requirements.txt",
+            )
+            _root.destroy()
+        except Exception:
+            pass
         sys.exit(1)
 
     # Launch the GUI

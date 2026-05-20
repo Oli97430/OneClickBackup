@@ -8,6 +8,8 @@ relies on standard Windows tools (robocopy, wbadmin, diskpart, bcdboot,
 PowerShell) and delegates to the helpers in ``src.utils``.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging
@@ -17,10 +19,10 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
 
 from src.utils.admin import is_admin
 from src.utils.helpers import run_powershell
@@ -103,7 +105,7 @@ def _dir_size(path: str) -> int:
     return total
 
 
-def _get_partition_drive_letter(disk_index: int, partition_index: int) -> Optional[str]:
+def _get_partition_drive_letter(disk_index: int, partition_index: int) -> str | None:
     """Return the drive letter (e.g. ``"C"``) for a given disk/partition pair.
 
     Uses PowerShell ``Get-Partition`` to resolve the mapping.  Returns
@@ -226,7 +228,7 @@ def _create_partition(
     is_efi: bool = False,
     is_msr: bool = False,
     use_maximum: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """Create a single partition on *disk_index* and optionally format it.
 
     Returns the assigned drive letter or *None*.
@@ -304,7 +306,7 @@ class BackupManager(CloneMixin, WinPEMixin):
             os.path.expanduser("~"), "OneClickBackups"
         )
         self._log = logging.getLogger("OneClickBackup.Backup")
-        self._progress_callback: Optional[Callable[[str, float], None]] = None
+        self._progress_callback: Callable[[str, float], None] | None = None
         self._cancel_event = threading.Event()
         os.makedirs(self._backup_dir, exist_ok=True)
 
@@ -384,8 +386,9 @@ class BackupManager(CloneMixin, WinPEMixin):
                 proc.wait()
             raise
 
-        stdout = proc.stdout.read() if proc.stdout else ""
-        stderr = proc.stderr.read() if proc.stderr else ""
+        # Use communicate() to drain pipes safely — avoids deadlocks
+        # that can occur when stdout/stderr buffers fill up.
+        stdout, stderr = proc.communicate()
         return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
     # ======================================================================
@@ -533,9 +536,13 @@ class BackupManager(CloneMixin, WinPEMixin):
         wib_path = os.path.join(dest, "WindowsImageBackup")
         backup_size = _dir_size(wib_path) if os.path.isdir(wib_path) else 0
 
-        # Calculate C: total size as the "original" measure
-        c_root = "C:\\"
-        total_size = _dir_size(c_root)
+        # Calculate C: used space as the "original" measure (fast path
+        # via shutil.disk_usage instead of walking the entire tree).
+        try:
+            c_usage = shutil.disk_usage("C:\\")
+            total_size = c_usage.used
+        except OSError:
+            total_size = 0
 
         # Checksum: hash the catalog or first backup file found
         checksum = ""
@@ -943,7 +950,7 @@ class BackupManager(CloneMixin, WinPEMixin):
             json.dump(asdict(info), f, indent=2)
         self._log.debug("Metadata saved: %s", meta_path)
 
-    def _load_metadata(self, meta_path: str) -> Optional[BackupInfo]:
+    def _load_metadata(self, meta_path: str) -> BackupInfo | None:
         """Load a :class:`BackupInfo` from a JSON file, or return *None*."""
         try:
             with open(meta_path, encoding="utf-8") as f:
@@ -999,7 +1006,7 @@ class BackupManager(CloneMixin, WinPEMixin):
         return manifest_path
 
     def _run_robocopy(
-        self, source: str, target: str, options: Optional[list[str]] = None
+        self, source: str, target: str, options: list[str] | None = None
     ) -> bool:
         """Run robocopy with configurable flags.
 

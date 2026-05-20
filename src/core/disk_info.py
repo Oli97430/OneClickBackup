@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -19,18 +18,11 @@ import psutil
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Module-level cache
-# ---------------------------------------------------------------------------
-
-_disk_cache: list[DiskInfo] | None = None
-_cache_timestamp: float = 0.0
-_CACHE_TTL_SECONDS: float = 5.0
-_cache_lock = threading.Lock()
-
 
 # ---------------------------------------------------------------------------
-# Dataclasses
+# Dataclasses (defined before module-level cache so the type annotation
+# ``list[DiskInfo]`` resolves cleanly for readers — ``from __future__
+# import annotations`` makes it work at runtime regardless of order).
 # ---------------------------------------------------------------------------
 
 
@@ -71,29 +63,34 @@ class DiskInfo:
 
 
 # ---------------------------------------------------------------------------
+# Module-level cache
+# ---------------------------------------------------------------------------
+
+_disk_cache: list[DiskInfo] | None = None
+_cache_timestamp: float = 0.0
+_CACHE_TTL_SECONDS: float = 5.0
+_cache_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
 # PowerShell helper
 # ---------------------------------------------------------------------------
 
 
 def _run_powershell(command: str, timeout: int = 30) -> str | None:
-    """Run a PowerShell command and return its stdout, or None on failure."""
+    """Run a PowerShell command and return its stdout, or None on failure.
+
+    Delegates to :func:`src.utils.helpers.run_powershell` for the actual
+    subprocess call, adapting the three-tuple return to this module's
+    simpler ``str | None`` contract.
+    """
     try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", command],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-        if result.stderr.strip():
-            logger.debug("PowerShell stderr: %s", result.stderr.strip())
-        return None
-    except subprocess.TimeoutExpired:
-        logger.warning("PowerShell command timed out: %s", command[:120])
-        return None
-    except FileNotFoundError:
-        logger.warning("PowerShell executable not found")
+        from src.utils.helpers import run_powershell as _rp
+        stdout, stderr, rc = _rp(command)
+        if rc == 0 and stdout.strip():
+            return stdout.strip()
+        if stderr.strip():
+            logger.debug("PowerShell stderr: %s", stderr.strip())
         return None
     except Exception as exc:
         logger.debug("PowerShell error: %s", exc)

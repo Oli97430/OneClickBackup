@@ -7,18 +7,11 @@ content area (one page per feature), and a bottom status bar.
 from __future__ import annotations
 
 import logging
-import sys
-import os
 import tkinter as tk
 from tkinter import messagebox
 from typing import Optional
 
 import customtkinter as ctk
-
-# Ensure project root is importable
-_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
 
 from src.ui.widgets import COLORS, SidebarButton, StatusBar, OperationQueuePanel
 from src.utils.i18n import t, set_language, get_language, get_languages
