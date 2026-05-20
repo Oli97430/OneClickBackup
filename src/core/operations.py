@@ -61,7 +61,7 @@ class OperationManager:
     """
 
     # Valid file systems for format operations
-    _VALID_FILE_SYSTEMS = {"NTFS", "FAT32", "exFAT", "ReFS"}
+    _VALID_FILE_SYSTEMS = {"NTFS", "FAT32", "EXFAT", "REFS"}
 
     # Valid drive letters
     _VALID_DRIVE_LETTERS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
