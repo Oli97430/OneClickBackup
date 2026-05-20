@@ -13,65 +13,68 @@
   <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Windows">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-1.0.0-6366f1?style=flat-square" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/version-1.3.0-6366f1?style=flat-square" alt="v1.3.0">
+  <img src="https://img.shields.io/badge/tests-714%20passing-brightgreen?style=flat-square" alt="714 tests">
+  <img src="https://img.shields.io/badge/pyright-0%20errors-blue?style=flat-square" alt="pyright 0 errors">
 </p>
 
 ---
 
 ## Overview
 
-**OneClick Backup** provides a professional desktop interface for managing disks, partitions, backups, and system cloning on Windows. It combines the power of Windows management tools (diskpart, PowerShell, WMI, wbadmin, robocopy) behind an intuitive dark-themed GUI.
+**OneClick Backup** provides a professional desktop interface for managing disks, partitions, backups, and system cloning on Windows. It combines the power of Windows management tools (diskpart, PowerShell, WMI, wbadmin, robocopy, 7-Zip) behind an intuitive dark-themed GUI.
 
-### Key Highlights
+### Key Features
 
-- **Dashboard** with real-time disk visualization (gradient partition bars, health status, SMART data)
-- **Disk Cloning** — full disk clone or OS-only migration to SSD/HDD
-- **Partition Management** — create, resize, merge, format, delete, change drive letters
-- **Backup & Restore** — full disk images, partition backups, system state backups with checksums
-- **Disk Conversion** — MBR ↔ GPT, Basic ↔ Dynamic, NTFS ↔ FAT32
-- **Partition Recovery** — scan and recover lost/deleted partitions
-- **Advanced Tools** — WinPE bootable USB creation, 4K alignment check, disk health reports
-- **6 Languages** — English, French, Spanish, German, Arabic (RTL), Chinese Simplified
-- **UAC-aware** — works in limited mode, with optional admin elevation for full access
-
----
-
-## Screenshots
-
-The application features a "Midnight Operations" dark theme with an indigo/teal accent palette, gradient-rendered disk bars, accent-striped cards, and a three-font typographic system (Bahnschrift, Consolas, Segoe UI).
+| Category | Features |
+|:---------|:---------|
+| **Dashboard** | Real-time disk visualization, partition bars, SMART health, multi-disk selection, drag & drop |
+| **Backup** | Full / incremental / system / partition backups, ZIP compression, AES-256 encryption, cloud sync (OneDrive/GDrive/Dropbox) |
+| **Scheduling** | Daily / weekly / monthly via Windows Task Scheduler, history tracking with export |
+| **Disk Cloning** | Full disk clone, OS-only migration, network cloning via UNC paths |
+| **Partitions** | Create, resize, merge, format, delete, change drive letters |
+| **Disk Conversion** | MBR ↔ GPT, Basic ↔ Dynamic, NTFS ↔ FAT32 |
+| **Recovery** | Quick & deep partition scan, filesystem signature detection |
+| **Health** | S.M.A.R.T. monitoring, benchmarks (sequential/random IO), surface tests |
+| **Disk Imaging** | VHD / VHDX / IMG creation, mount, convert |
+| **Security** | Secure wipe (DoD 5220.22-M), System Restore Points |
+| **Advanced** | WinPE bootable USB, defragmentation, HTML reports, auto-updater |
+| **Accessibility** | Dark / light / high-contrast themes, Tab-focusable, WCAG compliance |
+| **i18n** | 5 languages (EN, FR, ES, DE, AR with RTL), instant hot-switching |
+| **Distribution** | Standalone EXE, Inno Setup installer, CLI mode, portable mode, system tray |
 
 ---
 
 ## Quick Start
 
-### Option A — Run from Source
+### Option A: Standalone Executable
+
+Download `OneClickBackup.exe` from the [Releases](../../releases/latest) page. No Python required.
+
+### Option B: Run from Source
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/OneClickBackup.git
+git clone https://github.com/Oli97430/OneClickBackup.git
 cd OneClickBackup
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Launch
 python main.py
 ```
 
-Or double-click **`launch.bat`** — it handles dependency installation, admin elevation, and launches the app automatically.
-
-### Option B — Standalone Executable
-
-Download `OneClickBackup.exe` from the [Releases](../../releases) page — no Python installation required.
-
-### Option C — Build the EXE Yourself
+### Option C: Build the EXE
 
 ```bash
 python build.py           # Release build (no console)
-python build.py --debug   # Debug build (with console window)
+python build.py --debug   # Debug build (with console)
 ```
 
-Output: `dist/OneClickBackup.exe`
+### Option D: CLI Mode
+
+```bash
+python main.py --cli backup --type system --dest E:\Backups
+python main.py --cli list-disks
+python main.py --cli benchmark --disk 0
+python main.py --cli smart --disk 0
+```
 
 ---
 
@@ -79,14 +82,12 @@ Output: `dist/OneClickBackup.exe`
 
 | Dependency       | Version  | Purpose                          |
 |:-----------------|:---------|:---------------------------------|
-| Python           | ≥ 3.10   | Runtime                          |
-| customtkinter    | ≥ 5.2.0  | Modern dark-themed UI framework  |
-| psutil           | ≥ 5.9.0  | Disk usage & system metrics      |
-| wmi              | ≥ 1.5.1  | Windows Management Instrumentation|
-| pywin32          | ≥ 306    | Windows COM/API bindings         |
-| Pillow           | ≥ 10.0.0 | Logo/icon generation             |
-
-Install all at once:
+| Python           | >= 3.10  | Runtime                          |
+| customtkinter    | >= 5.2.0 | Modern dark-themed UI framework  |
+| psutil           | >= 5.9.0 | Disk usage & system metrics      |
+| wmi              | >= 1.5.1 | Windows Management Instrumentation |
+| pywin32          | >= 306   | Windows COM/API bindings         |
+| Pillow           | >= 10.0  | Logo/icon generation             |
 
 ```bash
 pip install -r requirements.txt
@@ -98,141 +99,99 @@ pip install -r requirements.txt
 
 ```
 OneClickBackup/
-├── main.py                   # Entry point (logging setup, dependency check)
-├── launch.bat                # Windows launcher (auto-install + admin elevation)
-├── install.bat               # Dependency installer
-├── build.py                  # PyInstaller build script
-├── generate_logo.py          # Logo & icon generator (Pillow)
-├── requirements.txt          # Python dependencies
-├── pyproject.toml            # Project metadata, pytest/ruff/pyright config
-├── CHANGELOG.md              # Version history
-│
-├── assets/
-│   ├── logo.png              # 512×512 application logo
-│   └── icon.ico              # Multi-size Windows icon (16–256px)
+├── main.py                   # Entry point
+├── build.py                  # PyInstaller build script (v1.3.0)
+├── installer.iss             # Inno Setup installer script
+├── sign.ps1                  # Code signing scaffold
+├── pyrightconfig.json        # Type checking config
 │
 ├── src/
 │   ├── core/
-│   │   ├── disk_info.py      # WMI/PowerShell disk & partition scanning
+│   │   ├── backup.py         # Backup engine (create/restore/verify/delete/encrypt/compress)
+│   │   ├── clone.py          # Disk clone & OS migration mixin
+│   │   ├── winpe.py          # WinPE bootable media mixin
+│   │   ├── disk_info.py      # WMI/PowerShell disk scanning with async support
+│   │   ├── disk_health.py    # SMART, benchmarks, surface tests
+│   │   ├── disk_image.py     # VHD/VHDX/IMG creation & conversion
 │   │   ├── operations.py     # Queued disk operations (preview-before-apply)
-│   │   ├── backup.py         # Backup, restore, and core helpers
-│   │   ├── clone.py          # Disk/partition clone & OS migration (mixin)
-│   │   └── winpe.py          # WinPE bootable media creation (mixin)
+│   │   ├── recovery.py       # Partition recovery via signature detection
+│   │   ├── scheduler.py      # Windows Task Scheduler integration
+│   │   ├── secure_wipe.py    # DoD 5220.22-M multi-pass wipe
+│   │   ├── cloud_backup.py   # Cloud sync folder backup
+│   │   ├── history.py        # Backup history persistence
+│   │   └── updater.py        # Auto-update from GitHub Releases
 │   │
 │   ├── ui/
-│   │   ├── app.py            # Main window, sidebar, status bar, shortcuts
-│   │   ├── dashboard.py      # Dashboard page (disk overview, partition detail)
-│   │   ├── pages.py          # Feature pages with keyboard accessibility
-│   │   └── widgets.py        # Shared widgets, Tooltip, color palette, helpers
+│   │   ├── app.py            # Main window, sidebar, theme toggle, system tray
+│   │   ├── dashboard.py      # Disk overview, partition bars, multi-disk selection
+│   │   ├── pages.py          # 9 feature pages (clone, backup, recovery, scheduler, etc.)
+│   │   └── widgets.py        # Shared widgets, 3 color palettes, accessibility
 │   │
 │   └── utils/
-│       ├── admin.py          # UAC elevation & admin privilege checks
-│       ├── helpers.py        # diskpart/PowerShell wrappers, formatting utils
-│       └── i18n.py           # Translation system (6 languages, auto-locale)
+│       ├── helpers.py        # PS/diskpart wrappers, sanitization, formatting
+│       ├── admin.py          # UAC elevation & admin checks
+│       ├── i18n.py           # Translation system (5 languages, auto-locale)
+│       ├── settings.py       # Thread-safe JSON settings, portable mode
+│       ├── cli.py            # CLI argument parsing & command dispatch
+│       ├── crash_report.py   # Exception handler with path redaction
+│       ├── notifications.py  # Windows toast notifications
+│       └── report.py         # HTML report generation
 │
-└── tests/
-    ├── conftest.py           # Shared pytest fixtures
-    ├── test_helpers.py       # format_bytes, parse_size, safe_int, timestamps
-    ├── test_i18n.py          # Translations, language switching, validation
-    ├── test_disk_info.py     # Dataclass defaults, safe_*, normalization
-    ├── test_operations.py    # Label sanitization, queue, validation
-    ├── test_widgets.py       # Color helpers, format_bytes, fs_color
-    └── test_backup.py        # BackupInfo, exceptions, BackupManager init
+├── tests/                    # 714 tests
+│   ├── test_backup.py        # Backup engine tests
+│   ├── test_security.py      # Security hardening tests (75)
+│   ├── test_integration.py   # Cross-module integration tests (92)
+│   ├── test_coverage_boost.py # Coverage-targeted tests (71)
+│   ├── test_coverage_extra.py # Module-specific coverage (165)
+│   ├── test_new_modules.py   # New module unit tests (105)
+│   └── ...                   # Per-module unit tests
+│
+└── .github/workflows/ci.yml  # CI: lint, test (3 Python versions), build, release
 ```
+
+---
+
+## Security
+
+The codebase has been hardened through two comprehensive code reviews:
+
+- **PowerShell injection prevention** — All user-supplied strings are escaped via `sanitize_ps_string()` before interpolation into PS commands
+- **Zip Slip protection** — Archive extraction validates all member paths stay within the destination
+- **Path traversal guards** — `os.path.realpath()` boundary checks on backup deletion, cloud upload, and remote delete
+- **Password redaction** — 7-Zip passwords are never logged; `_redact_command()` strips `-p*` args
+- **Update integrity** — Downloaded EXEs are verified via SHA-256 hash or PE header check
+- **Thread safety** — All background-to-UI data passes through `tkinter.after()`; Settings use `threading.Lock`
+- **Input validation** — Drive letters, task names, schedule times, and file systems are regex-validated
+- **Crash report privacy** — Usernames are redacted from tracebacks and log excerpts
 
 ---
 
 ## Architecture
 
-### Design Patterns
-
-- **Preview-before-apply** — Disk operations are queued, reviewed, then batch-executed. No destructive action happens without explicit confirmation.
-- **Lazy page loading** — Feature pages are instantiated on first navigation to reduce startup time.
-- **Batched system queries** — WMI/PowerShell calls are grouped (3 calls for all disks instead of N×4 per disk) for performance.
-- **Cache with TTL** — Disk scan results are cached for 5 seconds to avoid redundant I/O.
-- **Graceful degradation** — Admin features are disabled (not hidden) when running without privileges.
-
-### Core Modules
-
-| Module              | Responsibility                                                    |
-|:--------------------|:------------------------------------------------------------------|
-| `disk_info.py`      | Scans physical disks via WMI + PowerShell fallback. Returns `DiskInfo` / `PartitionInfo` dataclasses with size, health, filesystem, alignment data. |
-| `operations.py`     | Queue-based operation manager. Validates inputs, prevents same-disk cloning, sanitizes labels. Executes via diskpart scripts and PowerShell. |
-| `backup.py`         | Full backup lifecycle: create images, verify checksums, restore, clone partitions, create WinPE bootable media. Uses robocopy, wbadmin, diskpart. |
-
-### UI Layer
-
-| Module              | Responsibility                                                    |
-|:--------------------|:------------------------------------------------------------------|
-| `app.py`            | Root `CTk` window. Sidebar with navigation, language selector, admin status, version label. Page management with lazy creation. |
-| `dashboard.py`      | Real-time disk overview. Canvas-rendered gradient partition bars, disk cards with accent stripes, partition detail panel with filesystem-colored headers. |
-| `pages.py`          | Six feature pages (Clone, Partitions, Backup, Convert, Recovery, Advanced). Each receives appropriate managers via dependency injection. |
-| `widgets.py`        | Foundation layer. Defines the `COLORS` palette, `_lighten()`/`_darken()` color helpers, `_canvas_rounded_rect()`, and all shared widgets. |
+- **Preview-before-apply** — Disk operations are queued, reviewed, then batch-executed
+- **Lazy page loading** — Pages instantiated on first navigation
+- **Batched WMI queries** — 3 calls for all disks instead of N*4 per disk
+- **Cache with TTL** — Disk scan results cached for 5 seconds
+- **Async scanning** — `asyncio.run_in_executor` for non-blocking disk enumeration
+- **Mixin composition** — `BackupManager` = `BackupManager` + `CloneMixin` + `WinPEMixin`
+- **Graceful degradation** — Admin features disabled (not hidden) when running unprivileged
 
 ---
 
-## Internationalization
-
-The app supports **6 languages** with instant hot-switching (no restart required):
-
-| Code | Language              | Direction |
-|:-----|:----------------------|:----------|
-| `en` | English               | LTR       |
-| `fr` | Français              | LTR       |
-| `es` | Español               | LTR       |
-| `de` | Deutsch               | LTR       |
-| `ar` | العربية               | RTL       |
-| `zh` | 中文 (Simplified)     | LTR       |
-
-Language preference is stored in `~/.oneclickbackup_lang.json` and persists across sessions. Arabic layout automatically switches to right-to-left alignment.
-
----
-
-## Administrator Privileges
-
-Many disk operations require elevated privileges. The app works in two modes:
-
-| Mode         | Available Features                                                       |
-|:-------------|:-------------------------------------------------------------------------|
-| **Limited**  | Dashboard viewing, disk info reading, backup browsing                    |
-| **Admin**    | All operations: clone, partition management, backup/restore, conversion  |
-
-The sidebar shows the current privilege level. Click **"Run as Admin"** to elevate via UAC without restarting the app manually.
-
----
-
-## Building the Executable
-
-The `build.py` script wraps PyInstaller with the correct configuration:
+## Testing
 
 ```bash
-python build.py
+# Run all tests
+pytest tests/ -v
+
+# With coverage
+pytest tests/ --cov=src --cov-report=term-missing
+
+# Type checking
+pyright src/
 ```
 
-This will:
-1. Verify PyInstaller is installed (auto-installs if missing)
-2. Check for the icon file (auto-generates if missing)
-3. Clean previous build artifacts
-4. Bundle everything into a single `dist/OneClickBackup.exe`
-
-The EXE includes all dependencies, assets, and translations — no Python installation needed on the target machine.
-
-### Build Options
-
-| Flag       | Effect                                |
-|:-----------|:--------------------------------------|
-| *(none)*   | Release build — no console window     |
-| `--debug`  | Debug build — console window visible  |
-
----
-
-## Security Considerations
-
-- All diskpart commands use **parameterized scripts** written to temp files (no shell injection)
-- Volume labels are **sanitized** with a strict regex (`^[A-Za-z0-9 _\-]{0,32}$`)
-- Operations use a **queue-then-apply** pattern — nothing destructive happens without explicit user confirmation
-- Admin elevation uses Windows UAC (`ShellExecuteW` with `runas` verb)
-- No network access — the application runs entirely offline
+**714 tests** | **0 pyright errors** | Security, integration, and unit test suites
 
 ---
 
@@ -240,8 +199,8 @@ The EXE includes all dependencies, assets, and translations — no Python instal
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+3. Run tests (`pytest tests/`)
+4. Commit your changes
 5. Open a Pull Request
 
 ---
@@ -253,5 +212,5 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 ---
 
 <p align="center">
-  <sub>Built with Python, CustomTkinter, and a lot of ☕</sub>
+  <sub>Built with Python, CustomTkinter, and a lot of work</sub>
 </p>

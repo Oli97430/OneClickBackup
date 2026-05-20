@@ -13,16 +13,20 @@ permissions:
 jobs:
   # ---- Lint & Type Check ----
   lint:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install tools
+        run: |
+          pip install ruff pyright
+          pip install -r requirements.txt
       - name: Run ruff linter
         run: ruff check src/ tests/ main.py build.py
+      - name: Run pyright type checker
+        run: pyright src/
 
   # ---- Unit Tests ----
   test:
@@ -39,9 +43,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest>=8.0
-      - name: Run tests
-        run: pytest tests/ -v --tb=short -q
+          pip install pytest>=8.0 pytest-cov>=5.0
+      - name: Run tests with coverage
+        run: pytest tests/ -v --tb=short -q --cov=src --cov-report=term
       - name: Test import sanity
         run: python -c "from src.core.backup import BackupManager; print('OK')"
 
