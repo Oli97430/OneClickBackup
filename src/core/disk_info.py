@@ -96,7 +96,7 @@ def _run_powershell(command: str, timeout: int = 30) -> str | None:
     """
     try:
         from src.utils.helpers import run_powershell as _rp
-        stdout, stderr, rc = _rp(command)
+        stdout, stderr, rc = _rp(command, timeout=timeout)
         if rc == 0 and stdout.strip():
             return stdout.strip()
         if stderr.strip():
@@ -291,14 +291,7 @@ def _build_partitions_wmi(
 
         # 2. Walk Win32_LogicalDiskToPartition to attach drive letters / volumes
         for assoc in wmi_conn.Win32_LogicalDiskToPartition():
-            part_id = _safe_str(assoc.Antecedent.DeviceID)
-            # Antecedent is the partition, Dependent is the logical disk
-            # — but the association naming is reversed in WMI:
-            #   Antecedent = Win32_DiskPartition
-            #   Dependent  = Win32_LogicalDisk
-            # Actually in Win32_LogicalDiskToPartition:
-            #   Antecedent = Win32_DiskPartition
-            #   Dependent  = Win32_LogicalDisk
+            # Antecedent = Win32_DiskPartition, Dependent = Win32_LogicalDisk
             wmi_part_id = _safe_str(assoc.Antecedent.DeviceID)
             logical = assoc.Dependent
             if wmi_part_id in part_map:

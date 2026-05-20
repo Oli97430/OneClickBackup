@@ -115,7 +115,7 @@ def build(debug=False):
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
 
     if result.returncode != 0:
-        print(f"\n  [ERREUR] Build failed with code {result.returncode}")
+        print(f"\n  [ERROR] Build failed with code {result.returncode}")
         sys.exit(1)
 
     exe_path = os.path.join(DIST_DIR, f"{APP_NAME}.exe")
@@ -128,7 +128,7 @@ def build(debug=False):
         print(f"  ║  Size:   {size_mb:.1f} MB")
         print(f"  ╚══════════════════════════════════════════════╝")
     else:
-        print(f"\n  [ERREUR] EXE not found at {exe_path}")
+        print(f"\n  [ERROR] EXE not found at {exe_path}")
         sys.exit(1)
 
 

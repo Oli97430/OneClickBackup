@@ -75,12 +75,11 @@ def main() -> None:
         pass
 
     # CLI mode: if command-line arguments are provided, run in CLI mode
-    import sys as _sys
-    if len(_sys.argv) > 1:
+    if len(sys.argv) > 1:
         try:
             from src.utils.cli import run_cli
-            exit_code = run_cli(_sys.argv[1:])
-            _sys.exit(exit_code)
+            exit_code = run_cli(sys.argv[1:])
+            sys.exit(exit_code)
         except ImportError:
             _log.warning("CLI module not available.")
         except SystemExit:

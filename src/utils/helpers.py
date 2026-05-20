@@ -115,7 +115,7 @@ def validate_drive_letter(letter: str) -> str:
     return letter
 
 
-def run_powershell(command: str) -> tuple[str, str, int]:
+def run_powershell(command: str, timeout: int = 120) -> tuple[str, str, int]:
     """Execute a PowerShell command and capture its output.
 
     .. warning::
@@ -125,6 +125,7 @@ def run_powershell(command: str) -> tuple[str, str, int]:
 
     Args:
         command: The PowerShell command string to run.
+        timeout: Maximum seconds to wait (default 120).
 
     Returns:
         A tuple of (stdout, stderr, return_code).
@@ -134,11 +135,11 @@ def run_powershell(command: str) -> tuple[str, str, int]:
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=timeout,
         )
         return result.stdout.strip(), result.stderr.strip(), result.returncode
     except subprocess.TimeoutExpired:
-        return "", "Command timed out after 120 seconds", 1
+        return "", f"Command timed out after {timeout} seconds", 1
     except FileNotFoundError:
         return "", "PowerShell executable not found", 1
     except OSError as e:
