@@ -613,6 +613,29 @@ def get_disk_by_index(index: int) -> DiskInfo | None:
     return None
 
 
+async def get_all_disks_async() -> list[DiskInfo]:
+    """Async wrapper for ``get_all_disks()``.
+
+    Runs the blocking disk scan in a thread pool executor so the
+    event loop stays responsive.  (#45 async disk scanning)
+
+    Usage::
+
+        import asyncio
+        disks = asyncio.run(get_all_disks_async())
+    """
+    import asyncio
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, get_all_disks)
+
+
+async def refresh_disk_info_async() -> list[DiskInfo]:
+    """Async wrapper for ``refresh_disk_info()``."""
+    import asyncio
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, refresh_disk_info)
+
+
 # ---------------------------------------------------------------------------
 # Internal: full disk scan
 # ---------------------------------------------------------------------------

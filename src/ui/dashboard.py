@@ -188,19 +188,25 @@ class DiskBar(ctk.CTkFrame):
 
 class DiskCard(ctk.CTkFrame):
     """A card that displays summary information for one physical disk,
-    including a DiskBar for visual partition layout."""
+    including a DiskBar for visual partition layout and an optional
+    selection checkbox (#29 multi-disk selection)."""
 
     def __init__(
         self,
         parent,
         disk_info,
         on_partition_click: Callable[[int, object], None] | None = None,
+        selectable: bool = False,
+        on_selection_change: Callable[[int, bool], None] | None = None,
         **kwargs,
     ):
         super().__init__(parent, fg_color=COLORS["bg_card"], corner_radius=8,
                          border_width=1, border_color=COLORS["border"], **kwargs)
         self._disk_info = disk_info
-        self._partition_click_cb = on_partition_click  # renamed to avoid method collision
+        self._partition_click_cb = on_partition_click
+        self._selectable = selectable
+        self._on_selection_change = on_selection_change
+        self._selected = False
         self.grid_columnconfigure(0, weight=0, minsize=3)
         self.grid_columnconfigure(1, weight=1)
         self._build()
@@ -225,18 +231,31 @@ class DiskCard(ctk.CTkFrame):
         # ---- Row 0: Header row ----
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=1, sticky="ew", padx=14, pady=(10, 2))
-        header.grid_columnconfigure(1, weight=1)
+        header.grid_columnconfigure(2, weight=1)
+
+        col = 0
+        # Selection checkbox (#29)
+        if self._selectable:
+            self._check_var = ctk.BooleanVar(value=False)
+            self._checkbox = ctk.CTkCheckBox(
+                header, text="", width=24,
+                variable=self._check_var,
+                fg_color=COLORS["accent_blue"],
+                command=self._on_check_toggle,
+            )
+            self._checkbox.grid(row=0, column=col, padx=(0, 6))
+            col += 1
 
         # Disk icon
         icon_text = "⚡" if media_type == "SSD" else "\U0001f4bd"
         ctk.CTkLabel(
             header, text=icon_text, font=ctk.CTkFont(size=20),
             text_color=COLORS["text_muted"],
-        ).grid(row=0, column=0, padx=(0, 10))
+        ).grid(row=0, column=col, padx=(0, 10))
 
         # Name + badge row — geometric display font
         name_frame = ctk.CTkFrame(header, fg_color="transparent")
-        name_frame.grid(row=0, column=1, sticky="w")
+        name_frame.grid(row=0, column=col + 1, sticky="w")
 
         ctk.CTkLabel(
             name_frame,
@@ -257,7 +276,7 @@ class DiskCard(ctk.CTkFrame):
 
         # Right side: size (monospace) + health badge
         info_frame = ctk.CTkFrame(header, fg_color="transparent")
-        info_frame.grid(row=0, column=2, sticky="e")
+        info_frame.grid(row=0, column=col + 2, sticky="e")
 
         ctk.CTkLabel(
             info_frame, text=format_bytes(size_bytes),
@@ -334,6 +353,24 @@ class DiskCard(ctk.CTkFrame):
                 font=("Consolas", 10),
                 text_color=COLORS["text_secondary"],
             ).grid(row=3, column=1, sticky="w", padx=18, pady=(0, 10))
+
+    def _on_check_toggle(self):
+        """Handle selection checkbox toggle."""
+        self._selected = self._check_var.get()
+        disk_index = getattr(self._disk_info, "index", 0)
+        # Visual feedback: highlight card border when selected
+        border_color = COLORS["accent_blue"] if self._selected else COLORS["border"]
+        self.configure(border_color=border_color, border_width=2 if self._selected else 1)
+        if self._on_selection_change:
+            self._on_selection_change(disk_index, self._selected)
+
+    @property
+    def is_selected(self) -> bool:
+        return self._selected
+
+    @property
+    def disk_index(self) -> int:
+        return getattr(self._disk_info, "index", 0)
 
     def _handle_partition_click(self, disk_index: int, partition_info):
         """Relay partition click to the registered callback."""
@@ -520,9 +557,12 @@ class DashboardPage(ctk.CTkFrame):
         self._disks: list = []
         self._selected_disk_index: int = -1
         self._selected_partition_index: int = -1
+        self._selected_disks: set[int] = set()  # #29 multi-disk selection
+        self._disk_cards: list[DiskCard] = []
         self._on_operation_requested = on_operation_requested
 
         self._build_ui()
+        self._setup_drag_drop()
         self.refresh_data()
 
     # ------------------------------------------------------------------
@@ -748,6 +788,9 @@ class DashboardPage(ctk.CTkFrame):
         for widget in self._disk_list_frame.winfo_children():
             widget.destroy()
 
+        self._disk_cards.clear()
+        self._selected_disks.clear()
+
         if not disks:
             no_data = ctk.CTkLabel(
                 self._disk_list_frame,
@@ -762,8 +805,17 @@ class DashboardPage(ctk.CTkFrame):
                     self._disk_list_frame,
                     disk_info=disk,
                     on_partition_click=self._on_partition_selected,
+                    selectable=True,
+                    on_selection_change=self._on_disk_selection_change,
                 )
                 card.grid(row=i, column=0, sticky="ew", padx=5, pady=5)
+                self._disk_cards.append(card)
+
+            # Drop zone hint at bottom
+            if hasattr(self, "_drop_label"):
+                self._drop_label.grid(
+                    row=len(disks), column=0, pady=(10, 5),
+                )
 
         # ---- Re-enable refresh ----
         self._refresh_btn.configure(state="normal", text=t("dash.refresh"))
@@ -796,3 +848,81 @@ class DashboardPage(ctk.CTkFrame):
         """Relay an action request from the detail panel to the caller."""
         if self._on_operation_requested is not None:
             self._on_operation_requested(action, disk_index, partition_info)
+
+    # ------------------------------------------------------------------
+    # Multi-disk selection (#29)
+    # ------------------------------------------------------------------
+
+    def _on_disk_selection_change(self, disk_index: int, selected: bool):
+        """Track multi-disk selection state."""
+        if selected:
+            self._selected_disks.add(disk_index)
+        else:
+            self._selected_disks.discard(disk_index)
+        count = len(self._selected_disks)
+        if count > 0:
+            self._refresh_btn.configure(
+                text=f"{count} disk{'s' if count > 1 else ''} selected"
+            )
+        else:
+            self._refresh_btn.configure(text=t("dash.refresh"))
+
+    def get_selected_disks(self) -> list[int]:
+        """Return list of selected disk indices for batch operations."""
+        return sorted(self._selected_disks)
+
+    # ------------------------------------------------------------------
+    # Drag & Drop (#30)
+    # ------------------------------------------------------------------
+
+    def _setup_drag_drop(self):
+        """Enable file drag-and-drop onto the dashboard.
+
+        Uses tkinter DnD bindings if available (tkdnd), otherwise falls
+        back to a simple drop-zone indicator.
+        """
+        # Try tkdnd first (if installed)
+        try:
+            self.drop_target_register("DND_Files")  # type: ignore[attr-defined]
+            self.dnd_bind("<<Drop>>", self._on_file_drop)  # type: ignore[attr-defined]
+            _log.info("Drag-and-drop: tkdnd backend active.")
+            return
+        except (AttributeError, tk.TclError):
+            pass
+
+        # Fallback: manual drop zone with visual indicator
+        self._drop_label = ctk.CTkLabel(
+            self._disk_list_frame,
+            text="📂 Drop backup files here or use Backup page",
+            font=ctk.CTkFont(size=11),
+            text_color=COLORS["text_muted"],
+        )
+        # Will be shown at bottom of disk list after refresh
+
+    def _on_file_drop(self, event):
+        """Handle file drop event from tkdnd."""
+        import os
+        files = self._parse_drop_data(event.data)
+        if not files:
+            return
+        for f in files:
+            if os.path.isfile(f) and f.lower().endswith((".zip", ".7z", ".vhdx", ".vhd", ".img")):
+                from tkinter import messagebox
+                messagebox.showinfo(
+                    "File Dropped",
+                    f"Received: {os.path.basename(f)}\n\n"
+                    "Navigate to Backup or Advanced page to process this file.",
+                )
+                return
+        from tkinter import messagebox
+        messagebox.showinfo("Drag & Drop", "Drop .zip, .7z, .vhdx, or .img backup files.")
+
+    @staticmethod
+    def _parse_drop_data(data: str) -> list[str]:
+        """Parse tkdnd drop data into a list of file paths."""
+        import re
+        # tkdnd wraps paths with spaces in braces: {C:\path with spaces\file.ext}
+        paths = re.findall(r'\{([^}]+)\}', data)
+        if not paths:
+            paths = data.split()
+        return [p.strip() for p in paths if p.strip()]

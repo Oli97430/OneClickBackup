@@ -245,6 +245,7 @@ def _extract_summary(path: str) -> str:
     line when found.
     """
     try:
+        fallback: str | None = None
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 stripped = line.strip()
@@ -252,8 +253,12 @@ def _extract_summary(path: str) -> str:
                     continue
                 if stripped.startswith("Exception"):
                     return stripped
-                # Return the first substantive line as a fallback.
-                return stripped
+                # Remember first substantive line as fallback, keep looking
+                # for an "Exception" line.
+                if fallback is None:
+                    fallback = stripped
+        if fallback is not None:
+            return fallback
     except OSError:
         pass
     return "(unreadable)"

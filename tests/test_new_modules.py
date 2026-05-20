@@ -669,7 +669,7 @@ class TestCrashReportHelpers(unittest.TestCase):
             fname = f.name
         try:
             result = crash_module._extract_summary(fname)
-            self.assertIn("OneClick Backup", result)
+            self.assertIn("ValueError", result)
         finally:
             os.remove(fname)
 

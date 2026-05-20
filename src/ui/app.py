@@ -15,7 +15,7 @@ from typing import Optional
 
 import customtkinter as ctk
 
-from src.ui.widgets import COLORS, COLORS_LIGHT, SidebarButton, StatusBar, OperationQueuePanel
+from src.ui.widgets import COLORS, COLORS_LIGHT, COLORS_HIGH_CONTRAST, SidebarButton, StatusBar, OperationQueuePanel
 from src.utils.i18n import t, set_language, get_language, get_languages
 
 # ---------------------------------------------------------------------------
@@ -471,18 +471,35 @@ class OneClickBackupApp(ctk.CTk):
     # Theme toggle (light/dark)
     # ------------------------------------------------------------------
 
+    _THEME_CYCLE = ["dark", "light", "high_contrast"]
+
     def _toggle_theme(self) -> None:
-        """Switch between dark and light themes."""
-        self._dark_mode = not self._dark_mode
+        """Cycle through dark → light → high contrast themes."""
+        if self._dark_mode is True:
+            # dark → light
+            self._dark_mode = False
+            self._current_theme = "light"
+        elif getattr(self, "_current_theme", "light") == "light":
+            # light → high contrast
+            self._dark_mode = True
+            self._current_theme = "high_contrast"
+        else:
+            # high contrast → dark
+            self._dark_mode = True
+            self._current_theme = "dark"
+
         mode = "dark" if self._dark_mode else "light"
         ctk.set_appearance_mode(mode)
-        self._theme_btn.configure(text="🌙 Dark" if self._dark_mode else "☀️ Light")
+
+        icons = {"dark": "🌙 Dark", "light": "☀️ Light", "high_contrast": "🔲 HiContrast"}
+        self._theme_btn.configure(text=icons.get(self._current_theme, "🌙 Dark"))
+
         # Rebuild pages with new colors
         for pg in self._pages.values():
             pg.destroy()
         self._pages.clear()
         self._show_page(self._current_page)
-        self._status_bar.set_status(f"Theme: {mode.capitalize()}")
+        self._status_bar.set_status(f"Theme: {self._current_theme.replace('_', ' ').title()}")
 
     # ------------------------------------------------------------------
     # USB device monitoring

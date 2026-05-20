@@ -95,6 +95,38 @@ COLORS_LIGHT = {
     "health_unknown": "#94a3b8",
 }
 
+# High contrast theme for WCAG accessibility (#50)
+COLORS_HIGH_CONTRAST = {
+    "bg_dark":       "#000000",
+    "bg_medium":     "#1a1a1a",
+    "bg_light":      "#333333",
+    "bg_card":       "#0a0a0a",
+    "accent_blue":   "#00ccff",
+    "accent_green":  "#00ff7f",
+    "accent_yellow": "#ffff00",
+    "accent_red":    "#ff3333",
+    "accent_purple": "#cc66ff",
+    "accent_orange": "#ff9900",
+    "text_primary":  "#ffffff",
+    "text_secondary": "#cccccc",
+    "text_muted":    "#999999",
+    "border":        "#666666",
+    "hover":         "#444444",
+    "ntfs_color":    "#00aaff",
+    "fat32_color":   "#00ff7f",
+    "exfat_color":   "#cc66ff",
+    "efi_color":     "#ffff00",
+    "recovery_color": "#ff6699",
+    "unallocated_color": "#333333",
+    "unknown_color": "#999999",
+    "bg_bar":        "#333333",
+    "other_fs_color": "#00ccff",
+    "health_healthy": "#00ff7f",
+    "health_warning": "#ffff00",
+    "health_unhealthy": "#ff3333",
+    "health_unknown": "#999999",
+}
+
 
 def _get(obj: Any, key: str, default: Any = None) -> Any:
     """Get attribute from dict or dataclass transparently."""
