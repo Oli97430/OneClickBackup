@@ -13,9 +13,9 @@
 
 #define MyAppName      "OneClick Backup"
 #define MyAppExeName   "OneClickBackup.exe"
-#define MyAppVersion   "1.2.0"
-#define MyAppPublisher "OneClickBackup"
-#define MyAppURL       "https://github.com/OneClickBackup/OneClickBackup"
+#define MyAppVersion   "1.3.0"
+#define MyAppPublisher "Oli97430"
+#define MyAppURL       "https://github.com/Oli97430/OneClickBackup"
 
 [Setup]
 AppId={{B7F1A2D4-9E3C-4F5B-8A1D-6C2E7F0B3D9A}
@@ -94,9 +94,12 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 [Code]
 // Prevent installing on Windows versions older than 10
 function InitializeSetup(): Boolean;
+var
+  Version: TWindowsVersion;
 begin
   Result := True;
-  if not IsWindows10OrGreater() then
+  GetWindowsVersionEx(Version);
+  if (Version.Major < 10) then
   begin
     MsgBox('OneClick Backup requires Windows 10 or later.', mbError, MB_OK);
     Result := False;
