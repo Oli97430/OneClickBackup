@@ -143,6 +143,9 @@ COLORS["health_warning"] = "#fbbf24"
 COLORS["health_unhealthy"] = "#f87171"
 COLORS["health_unknown"] = "#475569"
 
+# Save dark defaults for theme restoration
+_COLORS_DARK_DEFAULT = dict(COLORS)
+
 
 def _health_color(status: str) -> str:
     """Return a color for a disk health status string."""

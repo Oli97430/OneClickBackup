@@ -477,26 +477,35 @@ class OneClickBackupApp(ctk.CTk):
 
     def _toggle_theme(self) -> None:
         """Cycle through dark → light → high contrast themes."""
-        if self._dark_mode is True:
-            # dark → light
-            self._dark_mode = False
-            self._current_theme = "light"
-        elif self._current_theme == "light":
-            # light → high contrast
-            self._dark_mode = True
-            self._current_theme = "high_contrast"
-        else:
-            # high contrast → dark
-            self._dark_mode = True
-            self._current_theme = "dark"
+        from src.ui.widgets import COLORS, COLORS_LIGHT, COLORS_HIGH_CONTRAST
+
+        cycle = self._THEME_CYCLE
+        current_idx = cycle.index(self._current_theme) if self._current_theme in cycle else 0
+        next_idx = (current_idx + 1) % len(cycle)
+        self._current_theme = cycle[next_idx]
+        self._dark_mode = self._current_theme != "light"
 
         mode = "dark" if self._dark_mode else "light"
         ctk.set_appearance_mode(mode)
 
+        # Apply the correct color palette
+        _PALETTES = {
+            "dark": None,  # COLORS already holds the dark palette by default
+            "light": COLORS_LIGHT,
+            "high_contrast": COLORS_HIGH_CONTRAST,
+        }
+        palette = _PALETTES.get(self._current_theme)
+        if palette:
+            COLORS.update(palette)
+        else:
+            # Restore dark defaults — reimport the original COLORS
+            from src.ui.widgets import _COLORS_DARK_DEFAULT
+            COLORS.update(_COLORS_DARK_DEFAULT)
+
         icons = {"dark": "🌙 Dark", "light": "☀️ Light", "high_contrast": "🔲 HiContrast"}
         self._theme_btn.configure(text=icons.get(self._current_theme, "🌙 Dark"))
 
-        # Rebuild pages with new colors — destroy() cancels pending after() IDs
+        # Rebuild pages with new colors
         for pg in list(self._pages.values()):
             pg.destroy()
         self._pages.clear()
@@ -564,7 +573,12 @@ class OneClickBackupApp(ctk.CTk):
     @staticmethod
     def is_portable() -> bool:
         """Check if running in portable mode (settings file next to EXE)."""
-        exe_dir = os.path.dirname(os.path.abspath(__file__))
+        import sys
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(sys.executable)
+        else:
+            # Go up from src/ui/app.py to project root
+            exe_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         return os.path.isfile(os.path.join(exe_dir, ".portable"))
 
     # ------------------------------------------------------------------
@@ -612,4 +626,7 @@ class OneClickBackupApp(ctk.CTk):
                 t("confirm.pending_exit", n=len(pending)),
             ):
                 return
+        # Cancel pending USB poll to avoid TclError after destroy
+        if hasattr(self, '_usb_poll_id') and self._usb_poll_id:
+            self.after_cancel(self._usb_poll_id)
         self.destroy()

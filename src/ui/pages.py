@@ -1987,8 +1987,8 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
 
     def _run_benchmark(self):
         """Run a disk speed benchmark on the selected disk."""
-        idx_str = self._align_combo.get()
-        vals = self._align_combo.cget("values") or []
+        idx_str = self._img_combo.get()
+        vals = self._img_combo.cget("values") or []
         idx = vals.index(idx_str) if idx_str in vals else 0
         if idx >= len(self._disks):
             return
@@ -1997,9 +1997,9 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
         parts = getattr(disk, "partitions", []) or []
         letter = None
         for p in parts:
-            l = getattr(p, "letter", "")
-            if l:
-                letter = l
+            drv_letter = getattr(p, "letter", "")
+            if drv_letter:
+                letter = drv_letter
                 break
         if not letter:
             messagebox.showwarning("Benchmark", "No drive letter found on this disk.")
@@ -2027,8 +2027,8 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
 
     def _run_surface_test(self):
         """Run a disk surface test on the selected disk."""
-        idx_str = self._align_combo.get()
-        vals = self._align_combo.cget("values") or []
+        idx_str = self._img_combo.get()
+        vals = self._img_combo.cget("values") or []
         idx = vals.index(idx_str) if idx_str in vals else 0
         if idx >= len(self._disks):
             return
@@ -2053,8 +2053,8 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
 
     def _create_disk_image(self):
         """Create a VHD/VHDX image of a disk."""
-        idx_str = self._align_combo.get()
-        vals = self._align_combo.cget("values") or []
+        idx_str = self._img_combo.get()
+        vals = self._img_combo.cget("values") or []
         idx = vals.index(idx_str) if idx_str in vals else 0
         if idx >= len(self._disks):
             return
@@ -2115,8 +2115,8 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
 
     def _run_defrag(self):
         """Launch Windows defragmentation for the selected disk."""
-        idx_str = self._align_combo.get()
-        vals = self._align_combo.cget("values") or []
+        idx_str = self._img_combo.get()
+        vals = self._img_combo.cget("values") or []
         idx = vals.index(idx_str) if idx_str in vals else 0
         if idx >= len(self._disks):
             return
@@ -2124,9 +2124,9 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
         parts = getattr(disk, "partitions", []) or []
         letter = None
         for p in parts:
-            l = getattr(p, "letter", "")
-            if l:
-                letter = l
+            drv_letter = getattr(p, "letter", "")
+            if drv_letter:
+                letter = drv_letter
                 break
         if not letter:
             messagebox.showwarning("Defrag", "No drive letter found.")
@@ -2162,9 +2162,9 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     # -- SMART for selected disk (button helper) ------------------------------
 
     def _show_smart_for_selected(self):
-        """Show SMART details for the disk selected in the align combo."""
-        idx_str = self._align_combo.get()
-        vals = self._align_combo.cget("values") or []
+        """Show SMART details for the disk selected in the imaging combo."""
+        idx_str = self._img_combo.get()
+        vals = self._img_combo.cget("values") or []
         idx = vals.index(idx_str) if idx_str in vals else 0
         if idx < len(self._disks):
             disk_index = getattr(self._disks[idx], "index", 0)

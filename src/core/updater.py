@@ -133,8 +133,9 @@ class AutoUpdater:
     def check_async(self, callback) -> None:
         """Check for updates in a background thread.
 
-        Calls *callback(update_info)* on the calling thread's event loop
-        when done.
+        Calls *callback(update_info)* from the background thread.
+        The caller is responsible for marshalling to the UI thread
+        if needed.
         """
         def _bg():
             info = self.check_for_update()
@@ -292,15 +293,19 @@ class AutoUpdater:
         # all interpolated paths so that backslashes, quotes, and any
         # other special characters are properly escaped.
         helper_code = textwrap.dedent(f"""\
-            import os, shutil, subprocess, sys, time
+            import ctypes, os, shutil, subprocess, sys, time
 
             # Wait for the parent process to exit
             target_pid = {current_pid!r}
             for _ in range(30):
-                try:
-                    os.kill(target_pid, 0)
+                # Use OpenProcess to check if process exists (safe on Windows)
+                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    PROCESS_QUERY_LIMITED_INFORMATION, False, target_pid)
+                if handle:
+                    ctypes.windll.kernel32.CloseHandle(handle)
                     time.sleep(0.5)
-                except OSError:
+                else:
                     break
 
             src = {downloaded_path!r}

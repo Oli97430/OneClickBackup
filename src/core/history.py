@@ -128,5 +128,12 @@ class OperationHistory:
 
     @property
     def count(self) -> int:
-        """Return the total number of entries."""
-        return len(self.get_all(limit=100000))
+        """Return the total number of entries (line count, no parsing)."""
+        with _LOCK:
+            if not os.path.isfile(self._path):
+                return 0
+            try:
+                with open(self._path, encoding="utf-8") as f:
+                    return sum(1 for line in f if line.strip())
+            except OSError:
+                return 0

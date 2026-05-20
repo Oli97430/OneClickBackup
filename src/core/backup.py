@@ -102,15 +102,26 @@ def _get_os_version() -> str:
 
 
 def _dir_size(path: str) -> int:
-    """Recursively compute the total size (in bytes) of *path*."""
+    """Return total size of files in *path* (recursively).
+
+    Uses shutil.disk_usage for drive roots (e.g. 'C:\\') to avoid
+    slow full-tree walks and permission errors.
+    """
+    # Fast path for drive roots — avoids walking millions of files
+    normalized = os.path.normpath(path)
+    if os.path.ismount(normalized) or (len(normalized) <= 3 and normalized.endswith(os.sep)):
+        try:
+            return shutil.disk_usage(normalized).used
+        except OSError:
+            pass
+
     total = 0
     for dirpath, _dirnames, filenames in os.walk(path):
-        for fname in filenames:
-            fp = os.path.join(dirpath, fname)
+        for f in filenames:
             try:
-                total += os.path.getsize(fp)
+                total += os.path.getsize(os.path.join(dirpath, f))
             except OSError:
-                pass
+                continue
     return total
 
 
@@ -776,7 +787,7 @@ class BackupManager(CloneMixin, WinPEMixin):
         if os.path.isdir(info.backup_path):
             real_backup = os.path.realpath(info.backup_path)
             real_base = os.path.realpath(self._backup_dir)
-            if not real_backup.startswith(real_base + os.sep) and real_backup != real_base:
+            if not real_backup.startswith(real_base + os.sep):
                 raise BackupError(
                     f"Refusing to delete path outside backup directory: {info.backup_path}"
                 )

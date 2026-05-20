@@ -457,7 +457,7 @@ class CloneMixin:
         # Find the source EFI partition
         cmd = (
             "Get-Partition | Where-Object { $_.GptType -eq "
-            "'{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -and $_.DriveLetter -eq '' } | "
+            "'{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}' -and ($_.DriveLetter -eq $null -or $_.DriveLetter -eq 0) } | "
             "Select-Object DiskNumber, PartitionNumber | "
             "ConvertTo-Json -Compress"
         )
@@ -472,6 +472,8 @@ class CloneMixin:
             return
 
         if isinstance(data, list):
+            if not data:
+                return
             data = data[0]  # Use the first EFI partition
 
         src_disk = data.get("DiskNumber")
