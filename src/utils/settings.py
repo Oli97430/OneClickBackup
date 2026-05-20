@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 
 _log = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class Settings:
     """Thread-safe, JSON-backed application settings."""
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._path = _get_settings_path()
         self._data: dict = dict(_DEFAULTS)
         self._load()
@@ -75,6 +77,20 @@ class Settings:
                 stored = json.load(f)
             if isinstance(stored, dict):
                 self._data.update(stored)
+                # Validate loaded values against default types; discard
+                # any value whose type does not match the default.
+                for key, default_val in _DEFAULTS.items():
+                    if key in self._data and not isinstance(
+                        self._data[key], type(default_val)
+                    ):
+                        _log.warning(
+                            "Setting %r has wrong type %s (expected %s), "
+                            "reverting to default",
+                            key,
+                            type(self._data[key]).__name__,
+                            type(default_val).__name__,
+                        )
+                        self._data[key] = default_val
         except (json.JSONDecodeError, OSError) as exc:
             _log.warning("Failed to load settings from %s: %s", self._path, exc)
 
@@ -89,12 +105,14 @@ class Settings:
 
     def get(self, key: str, default=None):
         """Get a setting value."""
-        return self._data.get(key, default if default is not None else _DEFAULTS.get(key))
+        with self._lock:
+            return self._data.get(key, default if default is not None else _DEFAULTS.get(key))
 
     def set(self, key: str, value) -> None:
         """Set a setting value and save."""
-        self._data[key] = value
-        self.save()
+        with self._lock:
+            self._data[key] = value
+            self.save()
 
     def reset(self) -> None:
         """Reset all settings to defaults."""

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -121,9 +122,11 @@ def _write_crash_report(
     fname = f"crash_{now.strftime('%Y%m%d_%H%M%S')}.txt"
     report_path = os.path.join(_LOG_DIR, fname)
 
-    tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    tb_text = _redact_paths(
+        "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    )
     sys_info = _gather_system_info()
-    log_tail = _read_log_tail(_TAIL_LINES)
+    log_tail = _redact_paths(_read_log_tail(_TAIL_LINES))
 
     lines: list[str] = [
         "=" * 70,
@@ -193,6 +196,20 @@ def _show_crash_dialog(report_path: str) -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_USERNAME_RE = re.compile(
+    r"(?i)([A-Z]:\\Users\\|/home/|/Users/)([^\\/:*?\"<>|\r\n]+)"
+)
+
+
+def _redact_paths(text: str) -> str:
+    r"""Replace ``C:\Users\<username>`` (and Unix equivalents) with ``***``.
+
+    This prevents accidental leakage of the local username in crash
+    reports that may be shared publicly.
+    """
+    return _USERNAME_RE.sub(r"\g<1>***", text)
+
 
 def _gather_system_info() -> str:
     """Return a multi-line string of system / runtime details."""

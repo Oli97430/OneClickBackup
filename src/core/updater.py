@@ -6,12 +6,14 @@ optionally downloads the updated EXE.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
 import subprocess
 import tempfile
+import textwrap
 import threading
 from dataclasses import dataclass
 from urllib.request import urlopen, Request
@@ -189,13 +191,94 @@ class AutoUpdater:
         if callback:
             callback(100.0, "Download complete.")
         self._log.info("Update downloaded: %s (%d bytes)", dest_path, downloaded)
+
+        # ------------------------------------------------------------------
+        # Integrity verification
+        # ------------------------------------------------------------------
+        # 1. Try to find a .sha256 asset in the release for hash verification.
+        expected_hash = self._find_sha256_hash(update_info)
+        actual_hash = self._compute_sha256(dest_path)
+
+        if expected_hash:
+            if actual_hash.lower() != expected_hash.lower():
+                os.remove(dest_path)
+                raise RuntimeError(
+                    f"SHA-256 mismatch: expected {expected_hash}, "
+                    f"got {actual_hash}"
+                )
+            self._log.info("SHA-256 verified: %s", actual_hash)
+        else:
+            # 2. No hash available -- at minimum verify it is a valid PE
+            #    executable (starts with the MZ magic bytes).
+            self._verify_pe_header(dest_path)
+            self._log.info(
+                "No SHA-256 hash available; PE header verified OK."
+            )
+
         return dest_path
+
+    # ------------------------------------------------------------------
+    # Integrity helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_sha256(path: str) -> str:
+        """Return the hex-encoded SHA-256 digest of a file."""
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+
+    def _find_sha256_hash(self, update_info: UpdateInfo) -> str:
+        """Try to retrieve an expected SHA-256 hash from the release.
+
+        Looks for a ``*.sha256`` asset or a hex digest in the release notes.
+        Returns the hex string, or empty string if not found.
+        """
+        # Check release notes for an inline SHA-256 hash
+        sha_match = re.search(
+            r"(?i)sha-?256[:\s]+([0-9a-fA-F]{64})",
+            update_info.release_notes,
+        )
+        if sha_match:
+            return sha_match.group(1)
+
+        # Try downloading a .sha256 sidecar asset
+        base_url = update_info.download_url
+        for suffix in (".sha256", ".sha256sum"):
+            sha_url = base_url + suffix
+            try:
+                with urlopen(Request(sha_url), timeout=10) as resp:
+                    text = resp.read().decode("utf-8", errors="replace").strip()
+                # Format may be "<hash>  <filename>" or just "<hash>"
+                candidate = text.split()[0]
+                if re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
+                    return candidate
+            except (URLError, OSError):
+                continue
+
+        return ""
+
+    @staticmethod
+    def _verify_pe_header(path: str) -> None:
+        """Raise RuntimeError if *path* does not start with the MZ header."""
+        with open(path, "rb") as f:
+            magic = f.read(2)
+        if magic != b"MZ":
+            os.remove(path)
+            raise RuntimeError(
+                "Downloaded file is not a valid Windows executable "
+                "(missing MZ header)."
+            )
 
     def apply_update(self, downloaded_path: str) -> None:
         """Replace the current EXE with the downloaded one and restart.
 
-        Creates a small batch script that waits for the current process
-        to exit, replaces the EXE, and relaunches.
+        Creates a small Python helper script that waits for the current
+        process to exit, replaces the EXE, and relaunches.  Using a
+        Python script avoids the quoting pitfalls of cmd.exe batch files
+        (``%``, ``!``, etc.).
         """
         import sys
         current_exe = sys.executable
@@ -203,21 +286,46 @@ class AutoUpdater:
             self._log.warning("Not running as EXE; cannot auto-apply update.")
             return
 
-        # Write a temporary batch script
-        bat_content = (
-            f'@echo off\n'
-            f'timeout /t 2 /nobreak >nul\n'
-            f'copy /y "{downloaded_path}" "{current_exe}"\n'
-            f'start "" "{current_exe}"\n'
-            f'del "%~f0"\n'
-        )
-        fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="ocb_update_")
-        with os.fdopen(fd, "w") as f:
-            f.write(bat_content)
+        current_pid = os.getpid()
 
-        self._log.info("Launching update script: %s", bat_path)
+        # Write a temporary Python helper script.  repr() is used for
+        # all interpolated paths so that backslashes, quotes, and any
+        # other special characters are properly escaped.
+        helper_code = textwrap.dedent(f"""\
+            import os, shutil, subprocess, sys, time
+
+            # Wait for the parent process to exit
+            target_pid = {current_pid!r}
+            for _ in range(30):
+                try:
+                    os.kill(target_pid, 0)
+                    time.sleep(0.5)
+                except OSError:
+                    break
+
+            src = {downloaded_path!r}
+            dst = {current_exe!r}
+            shutil.copy2(src, dst)
+            subprocess.Popen([dst])
+
+            # Clean up the downloaded file and this helper script
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+            try:
+                os.remove(sys.argv[0])
+            except OSError:
+                pass
+        """)
+
+        fd, helper_path = tempfile.mkstemp(suffix=".py", prefix="ocb_update_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(helper_code)
+
+        self._log.info("Launching update helper: %s", helper_path)
         subprocess.Popen(
-            ["cmd", "/c", bat_path],
+            [sys.executable, helper_path],
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         sys.exit(0)

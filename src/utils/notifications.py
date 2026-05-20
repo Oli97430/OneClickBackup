@@ -18,6 +18,8 @@ from __future__ import annotations
 import logging
 import threading
 
+import re as _re
+
 from src.utils.helpers import format_bytes, run_powershell
 
 _log = logging.getLogger(__name__)
@@ -55,8 +57,17 @@ class NotificationManager:
 
     _DEFAULT_APP_ID = "OneClickBackup"
 
+    # Only allow alphanumeric characters, dots, and spaces in app IDs.
+    _SAFE_APP_ID_RE = _re.compile(r"^[A-Za-z0-9. ]+$")
+
     def __init__(self, app_id: str = "") -> None:
-        self._app_id = app_id or self._DEFAULT_APP_ID
+        raw_id = app_id or self._DEFAULT_APP_ID
+        if not self._SAFE_APP_ID_RE.match(raw_id):
+            _log.warning(
+                "Unsafe characters in app_id %r, falling back to default", raw_id
+            )
+            raw_id = self._DEFAULT_APP_ID
+        self._app_id = raw_id
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------

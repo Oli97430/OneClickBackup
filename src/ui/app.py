@@ -63,6 +63,7 @@ class OneClickBackupApp(ctk.CTk):
     WINDOW_SIZE = "1280x800"
     MIN_SIZE = (1024, 600)
     _dark_mode: bool = True
+    _current_theme: str = "dark"
 
     def __init__(self) -> None:
         super().__init__()
@@ -364,8 +365,10 @@ class OneClickBackupApp(ctk.CTk):
         if code == get_language():
             return
         set_language(code)
-        # Clear cached pages so they are rebuilt with new strings
-        for pg in self._pages.values():
+        # Destroy cached pages so they are rebuilt with new strings.
+        # destroy() also cancels any pending after() callbacks on each page,
+        # preventing stale callbacks from firing on destroyed widgets.
+        for pg in list(self._pages.values()):
             pg.destroy()
         self._pages.clear()
         self._refresh_ui()
@@ -478,7 +481,7 @@ class OneClickBackupApp(ctk.CTk):
             # dark → light
             self._dark_mode = False
             self._current_theme = "light"
-        elif getattr(self, "_current_theme", "light") == "light":
+        elif self._current_theme == "light":
             # light → high contrast
             self._dark_mode = True
             self._current_theme = "high_contrast"
@@ -493,8 +496,8 @@ class OneClickBackupApp(ctk.CTk):
         icons = {"dark": "🌙 Dark", "light": "☀️ Light", "high_contrast": "🔲 HiContrast"}
         self._theme_btn.configure(text=icons.get(self._current_theme, "🌙 Dark"))
 
-        # Rebuild pages with new colors
-        for pg in self._pages.values():
+        # Rebuild pages with new colors — destroy() cancels pending after() IDs
+        for pg in list(self._pages.values()):
             pg.destroy()
         self._pages.clear()
         self._show_page(self._current_page)

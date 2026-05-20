@@ -164,7 +164,9 @@ class CloudBackupManager:
                 "OneClickBackup", os.path.basename(local_path)
             )
 
-        dest = os.path.join(prov.sync_folder, remote_subpath)
+        dest = os.path.realpath(os.path.join(prov.sync_folder, remote_subpath))
+        if not dest.startswith(os.path.realpath(prov.sync_folder) + os.sep):
+            raise ValueError(f"Path traversal detected: {remote_subpath}")
         os.makedirs(os.path.dirname(dest), exist_ok=True)
 
         total = os.path.getsize(local_path)
@@ -193,7 +195,9 @@ class CloudBackupManager:
         prov = self._providers.get(provider_name)
         if prov is None or not prov.available:
             return False
-        path = os.path.join(prov.sync_folder, remote_subpath)
+        path = os.path.realpath(os.path.join(prov.sync_folder, remote_subpath))
+        if not path.startswith(os.path.realpath(prov.sync_folder) + os.sep):
+            raise ValueError(f"Path traversal detected: {remote_subpath}")
         if os.path.isfile(path):
             os.remove(path)
             return True

@@ -99,8 +99,29 @@ def safe_int(value: object, default: int = 0) -> int:
         return default
 
 
+def sanitize_ps_string(value: str) -> str:
+    """Escape a string for safe use inside PowerShell single-quoted literals.
+
+    Single quotes in PS are escaped by doubling them: ' -> ''
+    """
+    return value.replace("'", "''")
+
+
+def validate_drive_letter(letter: str) -> str:
+    """Validate and return a single uppercase drive letter, or raise ValueError."""
+    letter = letter.strip().upper()
+    if len(letter) != 1 or not letter.isalpha():
+        raise ValueError(f"Invalid drive letter: {letter!r}")
+    return letter
+
+
 def run_powershell(command: str) -> tuple[str, str, int]:
     """Execute a PowerShell command and capture its output.
+
+    .. warning::
+        Callers **MUST** sanitize all user-supplied values before embedding
+        them in *command*.  Use :func:`sanitize_ps_string` for values placed
+        inside single-quoted PowerShell literals.
 
     Args:
         command: The PowerShell command string to run.
@@ -128,6 +149,11 @@ def run_diskpart(script_lines: list[str]) -> tuple[str, str, int]:
     """Run a diskpart script and return its output.
 
     Creates a temporary script file, invokes diskpart, then cleans up.
+
+    .. warning::
+        Callers **MUST** sanitize all user-supplied values before embedding
+        them in *script_lines*.  Use :func:`validate_drive_letter` for drive
+        letters and ensure disk/volume indices are integers.
 
     Args:
         script_lines: List of diskpart commands, one per line.

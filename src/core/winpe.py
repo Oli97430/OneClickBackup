@@ -128,86 +128,87 @@ class WinPEMixin:
             "DandISetEnv.bat",
         )
 
-        # copype creates a working WinPE directory -- it requires the ADK
-        # environment so we write a temp .bat that sources it first.
-        arch = "amd64"
-        self._report_progress("Running copype...", 15.0)
-        copype_bat = self._write_adk_bat(deploy_env, f'copype {arch} "{work_dir}"')
         try:
-            result = subprocess.run(
-                ["cmd", "/c", copype_bat],
-                capture_output=True, text=True, timeout=300,
+            # copype creates a working WinPE directory -- it requires the ADK
+            # environment so we write a temp .bat that sources it first.
+            arch = "amd64"
+            self._report_progress("Running copype...", 15.0)
+            copype_bat = self._write_adk_bat(deploy_env, f'copype {arch} "{work_dir}"')
+            try:
+                result = subprocess.run(
+                    ["cmd", "/c", copype_bat],
+                    capture_output=True, text=True, timeout=300,
+                )
+            finally:
+                self._safe_unlink(copype_bat)
+            if result.returncode != 0:
+                raise BackupError(f"copype failed: {result.stderr}")
+
+            # Optionally mount boot.wim and inject custom scripts
+            wim_path = os.path.join(work_dir, "media", "sources", "boot.wim")
+            mount_dir = os.path.join(work_dir, "mount")
+
+            if os.path.isfile(wim_path):
+                self._report_progress("Mounting boot.wim...", 35.0)
+                mount_result = subprocess.run(
+                    ["dism", "/Mount-Wim", f"/WimFile:{wim_path}",
+                     "/Index:1", f"/MountDir:{mount_dir}"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if mount_result.returncode != 0:
+                    self._log.warning(
+                        "dism mount failed (exit %d): %s",
+                        mount_result.returncode,
+                        mount_result.stderr,
+                    )
+                else:
+                    # Only customise if mount succeeded
+                    # Copy our tool into the WinPE image
+                    tool_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    tool_dst = os.path.join(mount_dir, "OneClickBackup")
+                    if os.path.isdir(tool_src):
+                        shutil.copytree(tool_src, tool_dst, dirs_exist_ok=True)
+
+                    # Create autorun startnet.cmd addition
+                    startnet = os.path.join(
+                        mount_dir, "Windows", "System32", "startnet.cmd"
+                    )
+                    if os.path.isfile(startnet):
+                        with open(startnet, "a") as f:
+                            f.write("\r\necho OneClickBackup WinPE Environment Ready\r\n")
+
+                # Always attempt unmount (even after failed mount, to clean up)
+                self._report_progress("Unmounting boot.wim...", 55.0)
+                unmount_result = subprocess.run(
+                    ["dism", "/Unmount-Wim", f"/MountDir:{mount_dir}", "/Commit"],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if unmount_result.returncode != 0:
+                    self._log.warning(
+                        "dism unmount failed (exit %d): %s",
+                        unmount_result.returncode,
+                        unmount_result.stderr,
+                    )
+
+            # Write to USB using MakeWinPEMedia (requires ADK environment)
+            self._report_progress("Writing to USB...", 70.0)
+            media_bat = self._write_adk_bat(
+                deploy_env, f'MakeWinPEMedia /UFD "{work_dir}" {target_letter}:',
             )
+            try:
+                result = subprocess.run(
+                    ["cmd", "/c", media_bat],
+                    capture_output=True, text=True, timeout=600,
+                )
+            finally:
+                self._safe_unlink(media_bat)
+            if result.returncode != 0:
+                raise BackupError(f"MakeWinPEMedia failed: {result.stderr}")
+
+            self._report_progress("WinPE USB created successfully.", 100.0)
+            return True
         finally:
-            self._safe_unlink(copype_bat)
-        if result.returncode != 0:
-            raise BackupError(f"copype failed: {result.stderr}")
-
-        # Optionally mount boot.wim and inject custom scripts
-        wim_path = os.path.join(work_dir, "media", "sources", "boot.wim")
-        mount_dir = os.path.join(work_dir, "mount")
-
-        if os.path.isfile(wim_path):
-            self._report_progress("Mounting boot.wim...", 35.0)
-            mount_result = subprocess.run(
-                ["dism", "/Mount-Wim", f"/WimFile:{wim_path}",
-                 "/Index:1", f"/MountDir:{mount_dir}"],
-                capture_output=True, text=True, timeout=300,
-            )
-            if mount_result.returncode != 0:
-                self._log.warning(
-                    "dism mount failed (exit %d): %s",
-                    mount_result.returncode,
-                    mount_result.stderr,
-                )
-            else:
-                # Only customise if mount succeeded
-                # Copy our tool into the WinPE image
-                tool_src = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                tool_dst = os.path.join(mount_dir, "OneClickBackup")
-                if os.path.isdir(tool_src):
-                    shutil.copytree(tool_src, tool_dst, dirs_exist_ok=True)
-
-                # Create autorun startnet.cmd addition
-                startnet = os.path.join(
-                    mount_dir, "Windows", "System32", "startnet.cmd"
-                )
-                if os.path.isfile(startnet):
-                    with open(startnet, "a") as f:
-                        f.write("\r\necho OneClickBackup WinPE Environment Ready\r\n")
-
-            # Always attempt unmount (even after failed mount, to clean up)
-            self._report_progress("Unmounting boot.wim...", 55.0)
-            unmount_result = subprocess.run(
-                ["dism", "/Unmount-Wim", f"/MountDir:{mount_dir}", "/Commit"],
-                capture_output=True, text=True, timeout=300,
-            )
-            if unmount_result.returncode != 0:
-                self._log.warning(
-                    "dism unmount failed (exit %d): %s",
-                    unmount_result.returncode,
-                    unmount_result.stderr,
-                )
-
-        # Write to USB using MakeWinPEMedia (requires ADK environment)
-        self._report_progress("Writing to USB...", 70.0)
-        media_bat = self._write_adk_bat(
-            deploy_env, f'MakeWinPEMedia /UFD "{work_dir}" {target_letter}:',
-        )
-        try:
-            result = subprocess.run(
-                ["cmd", "/c", media_bat],
-                capture_output=True, text=True, timeout=600,
-            )
-        finally:
-            self._safe_unlink(media_bat)
-        if result.returncode != 0:
-            raise BackupError(f"MakeWinPEMedia failed: {result.stderr}")
-
-        # Cleanup
-        shutil.rmtree(work_dir, ignore_errors=True)
-        self._report_progress("WinPE USB created successfully.", 100.0)
-        return True
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     def _create_winpe_basic(self, target_letter: str) -> bool:
         """Create a minimal bootable USB without ADK.
@@ -252,12 +253,18 @@ class WinPEMixin:
         ]
         for bp in bootsect_paths:
             if os.path.isfile(bp):
-                subprocess.run(
+                bootsect_result = subprocess.run(
                     [bp, "/nt60", f"{target_letter}:", "/mbr"],
                     capture_output=True,
                     text=True,
                     timeout=60,
                 )
+                if bootsect_result.returncode != 0:
+                    self._log.warning(
+                        "bootsect exited with code %d: %s",
+                        bootsect_result.returncode,
+                        bootsect_result.stderr,
+                    )
                 break
 
         # Copy WinRE.wim if it exists
@@ -283,10 +290,16 @@ class WinPEMixin:
                 shutil.copy2(src_file, dst_file)
 
         # Create a minimal BCD store with bcdboot (best effort)
-        subprocess.run(
+        bcdboot_result = subprocess.run(
             ["bcdboot", r"C:\Windows", "/s", f"{target_letter}:", "/f", "ALL"],
             capture_output=True, text=True, timeout=60,
         )
+        if bcdboot_result.returncode != 0:
+            self._log.warning(
+                "bcdboot exited with code %d: %s",
+                bcdboot_result.returncode,
+                bcdboot_result.stderr,
+            )
 
         self._report_progress("Basic bootable USB created.", 100.0)
         self._log.info(
@@ -303,7 +316,18 @@ class WinPEMixin:
         """Write a temp .bat that sources the ADK environment then runs *command*.
 
         Returns the path to the temp file (caller must delete after use).
+
+        Raises:
+            ValueError: If *deploy_env* is not an existing file or *command*
+                contains shell metacharacters that could allow injection.
         """
+        if not os.path.isfile(deploy_env):
+            raise ValueError(f"ADK environment script not found: {deploy_env}")
+        _dangerous = set("&|><^%")
+        if _dangerous.intersection(command):
+            raise ValueError(
+                f"Command contains disallowed shell metacharacters: {command!r}"
+            )
         fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="ocb_adk_")
         with os.fdopen(fd, "w") as f:
             f.write(f'@call "{deploy_env}"\r\n')

@@ -31,6 +31,11 @@ _SUPPORTED_FORMATS: frozenset[str] = frozenset({"vhd", "vhdx", "img"})
 _log = logging.getLogger("OneClickBackup.DiskImage")
 
 
+def _ps_escape(s: str) -> str:
+    """Escape single quotes for safe interpolation into PowerShell single-quoted strings."""
+    return s.replace("'", "''")
+
+
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
@@ -143,7 +148,7 @@ class DiskImageManager:
 
         type_flag = "-Dynamic" if vhd_type_lower == "dynamic" else "-Fixed"
         cmd = (
-            f"New-VHD -Path '{path}' -SizeBytes {size_bytes} "
+            f"New-VHD -Path '{_ps_escape(path)}' -SizeBytes {size_bytes} "
             f"{type_flag} -ErrorAction Stop"
         )
 
@@ -364,8 +369,8 @@ class DiskImageManager:
         else:
             # Convert between VHD <-> VHDX
             conv_cmd = (
-                f"Convert-VHD -Path '{found_vhd}' "
-                f"-DestinationPath '{output_path}' -ErrorAction Stop"
+                f"Convert-VHD -Path '{_ps_escape(found_vhd)}' "
+                f"-DestinationPath '{_ps_escape(output_path)}' -ErrorAction Stop"
             )
             _, conv_err, conv_rc = run_powershell(conv_cmd)
             if conv_rc != 0:
@@ -401,8 +406,8 @@ class DiskImageManager:
                 callback("Converting raw image to VHD(X)...", 80.0)
 
             conv_cmd = (
-                f"Convert-VHD -Path '{raw_path}' "
-                f"-DestinationPath '{output_path}' -ErrorAction Stop"
+                f"Convert-VHD -Path '{_ps_escape(raw_path)}' "
+                f"-DestinationPath '{_ps_escape(output_path)}' -ErrorAction Stop"
             )
             _, conv_err, conv_rc = run_powershell(conv_cmd)
             if conv_rc != 0:
@@ -444,14 +449,14 @@ class DiskImageManager:
             raise DiskImageError(f"File not found: {path}")
 
         _log.info("Mounting VHD: %s", path)
-        cmd = f"Mount-VHD -Path '{path}' -ErrorAction Stop"
+        cmd = f"Mount-VHD -Path '{_ps_escape(path)}' -ErrorAction Stop"
         _, stderr, rc = run_powershell(cmd)
         if rc != 0:
             raise DiskImageError(f"Mount-VHD failed: {stderr}")
 
         # Retrieve the drive letter that Windows assigned
         letter_cmd = (
-            f"(Get-DiskImage -ImagePath '{path}' | Get-Disk | "
+            f"(Get-DiskImage -ImagePath '{_ps_escape(path)}' | Get-Disk | "
             "Get-Partition | Where-Object { $_.DriveLetter } | "
             "Select-Object -First 1).DriveLetter"
         )
@@ -482,7 +487,7 @@ class DiskImageManager:
         _require_admin("VHD dismount")
 
         _log.info("Dismounting VHD: %s", path)
-        cmd = f"Dismount-VHD -Path '{path}' -ErrorAction Stop"
+        cmd = f"Dismount-VHD -Path '{_ps_escape(path)}' -ErrorAction Stop"
         _, stderr, rc = run_powershell(cmd)
         if rc != 0:
             raise DiskImageError(f"Dismount-VHD failed: {stderr}")
@@ -583,8 +588,8 @@ class DiskImageManager:
         # -- VHD <-> VHDX (both handled by Convert-VHD) -------------------
         if src_ext in ("vhd", "vhdx") and fmt in ("vhd", "vhdx"):
             cmd = (
-                f"Convert-VHD -Path '{source}' "
-                f"-DestinationPath '{target}' -ErrorAction Stop"
+                f"Convert-VHD -Path '{_ps_escape(source)}' "
+                f"-DestinationPath '{_ps_escape(target)}' -ErrorAction Stop"
             )
             _, stderr, rc = run_powershell(cmd)
             if rc != 0:
@@ -599,8 +604,8 @@ class DiskImageManager:
         # -- IMG -> VHD/VHDX (Convert-VHD from raw) -----------------------
         if src_ext == "img" and fmt in ("vhd", "vhdx"):
             cmd = (
-                f"Convert-VHD -Path '{source}' "
-                f"-DestinationPath '{target}' -ErrorAction Stop"
+                f"Convert-VHD -Path '{_ps_escape(source)}' "
+                f"-DestinationPath '{_ps_escape(target)}' -ErrorAction Stop"
             )
             _, stderr, rc = run_powershell(cmd)
             if rc != 0:
@@ -616,7 +621,7 @@ class DiskImageManager:
     def _vhd_to_raw(source: str, target: str) -> bool:
         """Mount a VHD/VHDX, find its disk number, and raw-copy to *target*."""
         # Mount the image (read-only)
-        mount_cmd = f"Mount-VHD -Path '{source}' -ReadOnly -ErrorAction Stop"
+        mount_cmd = f"Mount-VHD -Path '{_ps_escape(source)}' -ReadOnly -ErrorAction Stop"
         _, stderr, rc = run_powershell(mount_cmd)
         if rc != 0:
             raise DiskImageError(f"Mount-VHD failed: {stderr}")
@@ -624,7 +629,7 @@ class DiskImageManager:
         try:
             # Find the disk number of the mounted image
             num_cmd = (
-                f"(Get-DiskImage -ImagePath '{source}' | Get-Disk).Number"
+                f"(Get-DiskImage -ImagePath '{_ps_escape(source)}' | Get-Disk).Number"
             )
             stdout, _, rc = run_powershell(num_cmd)
             if rc != 0 or not stdout.strip().isdigit():
@@ -656,7 +661,7 @@ class DiskImageManager:
         finally:
             # Always dismount
             dismount_cmd = (
-                f"Dismount-VHD -Path '{source}' -ErrorAction SilentlyContinue"
+                f"Dismount-VHD -Path '{_ps_escape(source)}' -ErrorAction SilentlyContinue"
             )
             run_powershell(dismount_cmd)
 
@@ -703,7 +708,7 @@ class DiskImageManager:
 
         # -- VHD / VHDX ----------------------------------------------------
         cmd = (
-            f"Get-VHD -Path '{path}' -ErrorAction Stop "
+            f"Get-VHD -Path '{_ps_escape(path)}' -ErrorAction Stop "
             "| Select-Object Path, VhdFormat, VhdType, FileSize, Size "
             "| ConvertTo-Json -Compress"
         )

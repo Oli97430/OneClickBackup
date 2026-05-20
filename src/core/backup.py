@@ -363,11 +363,32 @@ class BackupManager(CloneMixin, WinPEMixin):
         Polls the process every *poll_interval* seconds and sends
         ``terminate()`` if the user cancels.  Falls back to ``kill()``
         if the process does not exit within 10 s of the terminate signal.
+
+        Stdout and stderr are drained in background threads to prevent
+        pipe-buffer deadlocks when the child writes more than ~64 KB.
         """
-        self._log.debug("Running (cancellable): %s", " ".join(cmd))
+        self._log.debug("Running (cancellable): %s", self._redact_command(cmd))
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
+
+        # Drain stdout/stderr in background threads to avoid deadlock
+        # when the child writes more than the OS pipe buffer (~64 KB).
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+
+        def _drain(pipe, buf):  # type: ignore[no-untyped-def]
+            try:
+                for chunk in iter(lambda: pipe.read(8192), ""):
+                    buf.append(chunk)
+            except (ValueError, OSError):
+                pass  # pipe closed
+
+        stdout_thread = threading.Thread(target=_drain, args=(proc.stdout, stdout_chunks), daemon=True)
+        stderr_thread = threading.Thread(target=_drain, args=(proc.stderr, stderr_chunks), daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+
         deadline = time.monotonic() + timeout
         try:
             while True:
@@ -386,7 +407,7 @@ class BackupManager(CloneMixin, WinPEMixin):
                 if time.monotonic() > deadline:
                     proc.kill()
                     raise BackupError(
-                        f"Command timed out after {timeout} s: {' '.join(cmd)}"
+                        f"Command timed out after {timeout} s: {self._redact_command(cmd)}"
                     )
         except Exception:
             # Ensure the process is always reaped
@@ -394,10 +415,13 @@ class BackupManager(CloneMixin, WinPEMixin):
                 proc.kill()
                 proc.wait()
             raise
+        finally:
+            # Always join drain threads so buffers are complete
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
 
-        # Use communicate() to drain pipes safely — avoids deadlocks
-        # that can occur when stdout/stderr buffers fill up.
-        stdout, stderr = proc.communicate()
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
         return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
     # ======================================================================
@@ -601,7 +625,12 @@ class BackupManager(CloneMixin, WinPEMixin):
             ],
         )
 
-        total_size = _dir_size(source)
+        # Use shutil.disk_usage instead of walking the entire C:\ tree,
+        # which can take minutes and lock up on inaccessible system files.
+        try:
+            total_size = shutil.disk_usage(source).used
+        except OSError:
+            total_size = 0
         backup_size = _dir_size(backup_subdir)
 
         manifest = self._write_file_manifest(backup_subdir)
@@ -741,8 +770,16 @@ class BackupManager(CloneMixin, WinPEMixin):
             self._log.warning("Backup %s not found.", backup_id)
             return False
 
-        # Remove the backup data directory
+        # Remove the backup data directory (verify it resides inside the
+        # configured backup directory to prevent path-traversal attacks via
+        # tampered metadata).
         if os.path.isdir(info.backup_path):
+            real_backup = os.path.realpath(info.backup_path)
+            real_base = os.path.realpath(self._backup_dir)
+            if not real_backup.startswith(real_base + os.sep) and real_backup != real_base:
+                raise BackupError(
+                    f"Refusing to delete path outside backup directory: {info.backup_path}"
+                )
             shutil.rmtree(info.backup_path, ignore_errors=True)
             self._log.info("Removed backup data: %s", info.backup_path)
 
@@ -1099,10 +1136,15 @@ class BackupManager(CloneMixin, WinPEMixin):
         os.makedirs(dest_dir, exist_ok=True)
 
         self._report_progress("Extracting backup...", 5.0)
+        real_dest = os.path.realpath(dest_dir)
         with zipfile.ZipFile(archive_path, "r") as zf:
             members = zf.namelist()
             for i, member in enumerate(members):
                 self._check_cancelled()
+                # Guard against Zip Slip path traversal attacks
+                member_path = os.path.realpath(os.path.join(dest_dir, member))
+                if not member_path.startswith(real_dest + os.sep) and member_path != real_dest:
+                    raise BackupError(f"Zip Slip detected: {member}")
                 zf.extract(member, dest_dir)
                 if members:
                     pct = 5.0 + (90.0 * (i + 1) / len(members))
@@ -1122,6 +1164,14 @@ class BackupManager(CloneMixin, WinPEMixin):
         password-protected ZIP (which uses AES-256 in 7-Zip format).
 
         Returns the path to the encrypted archive.
+
+        .. note::
+
+           The 7-Zip CLI receives the password via ``-p`` on the command
+           line, which means it is briefly visible in the process list.
+           This is a known limitation of the 7-Zip CLI — it does not
+           support receiving passwords via stdin or a response file.
+           The password is redacted from all log output.
         """
         meta_path = os.path.join(self._backup_dir, f"{backup_id}_meta.json")
         info = self._load_metadata(meta_path)
@@ -1132,7 +1182,7 @@ class BackupManager(CloneMixin, WinPEMixin):
         if info.is_compressed and os.path.isfile(source + ".zip"):
             source = source + ".zip"
 
-        encrypted_path = source.rstrip(".zip") + ".encrypted.7z"
+        encrypted_path = source.removesuffix(".zip") + ".encrypted.7z"
 
         # Try 7-Zip first (AES-256)
         seven_zip = self._find_7zip()
@@ -1142,6 +1192,7 @@ class BackupManager(CloneMixin, WinPEMixin):
                 "-mhe=on",  # encrypt headers
                 encrypted_path, source,
             ]
+            self._log.debug("Running: %s", self._redact_command(cmd))
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
             if result.returncode == 0:
                 info.is_encrypted = True
@@ -1368,8 +1419,11 @@ class BackupManager(CloneMixin, WinPEMixin):
         Returns True on success.
         """
         _require_admin("System restore point creation")
+        # Sanitize description to prevent PowerShell injection: escape
+        # single quotes and wrap in single-quoted string.
+        safe_desc = description.replace("'", "''")
         cmd = (
-            f'Checkpoint-Computer -Description "{description}" '
+            f"Checkpoint-Computer -Description '{safe_desc}' "
             f"-RestorePointType MODIFY_SETTINGS -ErrorAction Stop"
         )
         _, stderr, rc = run_powershell(cmd)
@@ -1383,6 +1437,18 @@ class BackupManager(CloneMixin, WinPEMixin):
     # ======================================================================
     # Private helpers
     # ======================================================================
+
+    @staticmethod
+    def _redact_command(cmd: list[str]) -> str:
+        """Return a shell-style string of *cmd* with passwords masked.
+
+        Replaces 7-Zip ``-p<password>`` arguments with ``-p***``.
+        """
+        import re as _re
+        redacted: list[str] = []
+        for arg in cmd:
+            redacted.append(_re.sub(r"^-p.+", "-p***", arg))
+        return " ".join(redacted)
 
     @staticmethod
     def _fmt_bytes(size_bytes: int) -> str:
@@ -1497,7 +1563,7 @@ class BackupManager(CloneMixin, WinPEMixin):
                     "/NFL", "/NDL", "/NP",
                 ])
 
-        self._log.debug("Running: %s", " ".join(cmd))
+        self._log.debug("Running: %s", self._redact_command(cmd))
 
         if progress_callback:
             return self._run_robocopy_with_progress(cmd, progress_callback)

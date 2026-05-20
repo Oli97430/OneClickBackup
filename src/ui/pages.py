@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -74,17 +75,22 @@ class _DiskPageMixin:
         """Kick off a background thread to reload disk data."""
         def _bg():
             try:
-                self._disks = _load_disks()
-                self.after(0, self._on_disks_loaded)  # type: ignore[attr-defined]
+                disks = _load_disks()
+                self.after(0, lambda d=disks: self._on_disks_loaded(d))  # type: ignore[attr-defined]
             except Exception as exc:
                 _log.exception("Background disk refresh failed: %s", exc)
                 self.after(0, lambda: messagebox.showerror(  # type: ignore[attr-defined]
                     t("common.error"), str(exc)))
         threading.Thread(target=_bg, daemon=True).start()
 
-    def _on_disks_loaded(self) -> None:
-        """Override in subclass to populate UI after disks are loaded."""
-        raise NotImplementedError
+    def _on_disks_loaded(self, disks: list) -> None:
+        """Override in subclass to populate UI after disks are loaded.
+
+        The *disks* argument is the freshly loaded disk list, passed
+        from the background thread through ``after()`` so the
+        assignment happens on the main thread.
+        """
+        self._disks = disks
 
 
 # ============================================================================
@@ -346,7 +352,8 @@ class ClonePage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh_disks(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate_combos()
 
     def _populate_combos(self):
@@ -468,7 +475,8 @@ class PartitionPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh_disks(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate()
 
     def _populate(self):
@@ -768,7 +776,8 @@ class ConversionPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate()
 
     def _populate(self):
@@ -828,6 +837,7 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._bkpmgr = backup_manager
         self._disks: list = []
+        self._selected_backup_idx: int = 0
         self._build_ui()
         self._apply_keyboard_accessibility()
         self._bind_shortcuts()
@@ -1032,7 +1042,8 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate_sources()
 
     def _populate_sources(self):
@@ -1093,7 +1104,8 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
                         import zipfile as _zf
                         zip_path = source.rstrip(os.sep) + ".zip"
                         if not os.path.isfile(zip_path):
-                            messagebox.showinfo("Cloud Backup", "Compressing backup for upload...")
+                            self.after(0, lambda: messagebox.showinfo(
+                                "Cloud Backup", "Compressing backup for upload..."))
                             with _zf.ZipFile(zip_path, "w", _zf.ZIP_DEFLATED) as zf:
                                 for root, _dirs, files in os.walk(source):
                                     for f in files:
@@ -1120,6 +1132,8 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh_backup_list(self):
         for w in self._backup_list.winfo_children():
             w.destroy()
+        self._selected_backup_idx = 0
+        self._backup_rows: list[ctk.CTkFrame] = []
         backups = []
         if self._bkpmgr:
             try:
@@ -1132,18 +1146,38 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
             return
         for i, b in enumerate(backups):
             row = ctk.CTkFrame(self._backup_list, fg_color=COLORS["bg_card"] if i % 2 == 0 else "transparent",
-                               corner_radius=6)
+                               corner_radius=6, cursor="hand2")
             row.grid(row=i, column=0, sticky="ew", padx=2, pady=2)
             row.grid_columnconfigure(1, weight=1)
+            self._backup_rows.append(row)
+            # Bind click to select this row
+            row.bind("<Button-1>", lambda e, idx=i: self._select_backup_row(idx))
             ctk.CTkLabel(row, text="📦", font=ctk.CTkFont(size=16)).grid(row=0, column=0, padx=8, pady=6)
-            ctk.CTkLabel(row, text=getattr(b, "name", "Backup"),
+            name_lbl = ctk.CTkLabel(row, text=getattr(b, "name", "Backup"),
                          font=ctk.CTkFont(size=12, weight="bold"),
-                         text_color=COLORS["text_primary"], anchor="w",
-                         ).grid(row=0, column=1, sticky="w")
+                         text_color=COLORS["text_primary"], anchor="w")
+            name_lbl.grid(row=0, column=1, sticky="w")
+            name_lbl.bind("<Button-1>", lambda e, idx=i: self._select_backup_row(idx))
             info = f"{getattr(b, 'timestamp', '')} | {getattr(b, 'backup_type', '')} | {format_bytes(getattr(b, 'total_size_bytes', 0))}"
-            ctk.CTkLabel(row, text=info, font=ctk.CTkFont(size=10),
-                         text_color=COLORS["text_secondary"], anchor="w",
-                         ).grid(row=1, column=1, sticky="w", padx=(0, 10))
+            info_lbl = ctk.CTkLabel(row, text=info, font=ctk.CTkFont(size=10),
+                         text_color=COLORS["text_secondary"], anchor="w")
+            info_lbl.grid(row=1, column=1, sticky="w", padx=(0, 10))
+            info_lbl.bind("<Button-1>", lambda e, idx=i: self._select_backup_row(idx))
+        # Highlight the initially selected row
+        self._highlight_backup_row()
+
+    def _select_backup_row(self, idx: int) -> None:
+        """Mark *idx* as the selected backup and update row highlights."""
+        self._selected_backup_idx = idx
+        self._highlight_backup_row()
+
+    def _highlight_backup_row(self) -> None:
+        """Apply a visual highlight to the currently selected backup row."""
+        for i, row in enumerate(self._backup_rows):
+            if i == self._selected_backup_idx:
+                row.configure(fg_color=COLORS["accent_blue"])
+            else:
+                row.configure(fg_color=COLORS["bg_card"] if i % 2 == 0 else "transparent")
 
     def _create_backup(self):
         name = self._bk_name.get().strip() or "Backup"
@@ -1230,7 +1264,8 @@ class BackupPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
         try:
             backups = self._bkpmgr.list_backups()
             if backups:
-                return backups[0]  # Default to most recent
+                idx = min(self._selected_backup_idx, len(backups) - 1)
+                return backups[idx]
         except Exception:
             pass
         return None
@@ -1376,7 +1411,8 @@ class RecoveryPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate_step0()
 
     def _populate_step0(self):
@@ -1492,15 +1528,16 @@ class RecoveryPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
                         "status": t("rec.recoverable") if getattr(r, "recoverable", False) else t("rec.partial"),
                         "offset": getattr(r, "offset_bytes", 0),
                     })
-                self._found_parts = parts
+                self.after(0, lambda p=parts: setattr(self, '_found_parts', p))
                 self.after(0, lambda: self._scan_progress.set(1.0))
                 self.after(0, lambda: self._scan_status.configure(text=t("rec.scan_done")))
                 self.after(0, lambda: self._next_btn.configure(state="normal"))
             except ImportError:
                 # Fallback to simulated data if recovery module not available
-                self._found_parts = [
+                _fallback = [
                     {"index": 1, "fs": "NTFS", "size": "120 GB", "status": t("rec.recoverable")},
                 ]
+                self.after(0, lambda p=_fallback: setattr(self, '_found_parts', p))
                 self.after(0, lambda: self._scan_progress.set(1.0))
                 self.after(0, lambda: self._scan_status.configure(text=t("rec.scan_done")))
                 self.after(0, lambda: self._next_btn.configure(state="normal"))
@@ -1796,7 +1833,8 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
     def _refresh(self):
         self._refresh_disks_bg()
 
-    def _on_disks_loaded(self):
+    def _on_disks_loaded(self, disks: list) -> None:
+        super()._on_disks_loaded(disks)
         self._populate()
 
     def _populate(self):
@@ -2093,13 +2131,17 @@ class AdvancedPage(_KeyboardAccessMixin, _DiskPageMixin, ctk.CTkFrame):
         if not letter:
             messagebox.showwarning("Defrag", "No drive letter found.")
             return
+        # Validate drive letter to prevent command injection
+        if not re.match(r'^[A-Za-z]$', letter):
+            messagebox.showerror("Error", f"Invalid drive letter: {letter}")
+            return
 
         media = getattr(disk, "media_type", "HDD")
         if media == "SSD":
-            cmd = f"Optimize-Volume -DriveLetter {letter} -ReTrim -Verbose"
+            cmd = f"Optimize-Volume -DriveLetter {letter.upper()} -ReTrim -Verbose"
             action = "TRIM"
         else:
-            cmd = f"Optimize-Volume -DriveLetter {letter} -Defrag -Verbose"
+            cmd = f"Optimize-Volume -DriveLetter {letter.upper()} -Defrag -Verbose"
             action = "Defragmentation"
 
         def _bg():

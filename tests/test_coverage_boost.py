@@ -70,15 +70,23 @@ class TestUpdaterDownload(unittest.TestCase):
 
     @patch("src.core.updater.urlopen")
     def test_download_update_success(self, mock_urlopen):
+        from urllib.error import URLError
         from src.core.updater import AutoUpdater, UpdateInfo
 
-        # Create a mock response that returns file data
+        # Create a mock response that returns file data with MZ header
+        # so PE verification passes when no SHA-256 hash is available.
+        exe_data = b"MZ" + b"fakebinarydata" * 100
         mock_resp = MagicMock()
-        mock_resp.read.side_effect = [b"fakebinarydata" * 100, b""]
-        mock_resp.headers = {"Content-Length": "1400"}
+        mock_resp.read.side_effect = [exe_data, b""]
+        mock_resp.headers = {"Content-Length": str(len(exe_data))}
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+
+        mock_urlopen.side_effect = [
+            mock_resp,                       # download
+            URLError("not found"),           # .sha256 sidecar
+            URLError("not found"),           # .sha256sum sidecar
+        ]
 
         info = UpdateInfo(
             current_version="1.0.0",
@@ -88,7 +96,7 @@ class TestUpdaterDownload(unittest.TestCase):
             download_url="https://github.com/test/OneClickBackup.exe",
             release_notes="New",
             published_at="2026-01-01",
-            file_size=1400,
+            file_size=len(exe_data),
         )
 
         updater = AutoUpdater(current_version="1.0.0")
@@ -99,14 +107,21 @@ class TestUpdaterDownload(unittest.TestCase):
 
     @patch("src.core.updater.urlopen")
     def test_download_update_with_callback(self, mock_urlopen):
+        from urllib.error import URLError
         from src.core.updater import AutoUpdater, UpdateInfo
 
+        exe_data = b"MZ" + b"data" * 100
         mock_resp = MagicMock()
-        mock_resp.read.side_effect = [b"data" * 100, b""]
-        mock_resp.headers = {"Content-Length": "400"}
+        mock_resp.read.side_effect = [exe_data, b""]
+        mock_resp.headers = {"Content-Length": str(len(exe_data))}
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+
+        mock_urlopen.side_effect = [
+            mock_resp,                       # download
+            URLError("not found"),           # .sha256 sidecar
+            URLError("not found"),           # .sha256sum sidecar
+        ]
 
         info = UpdateInfo(
             current_version="1.0.0",
@@ -116,7 +131,7 @@ class TestUpdaterDownload(unittest.TestCase):
             download_url="https://example.com/app.exe",
             release_notes="",
             published_at="",
-            file_size=400,
+            file_size=len(exe_data),
         )
 
         updater = AutoUpdater(current_version="1.0.0")
@@ -149,14 +164,25 @@ class TestUpdaterDownload(unittest.TestCase):
     @patch("src.core.updater.urlopen")
     def test_download_update_default_dest(self, mock_urlopen):
         """download_update uses temp dir when no dest_dir given."""
+        from urllib.error import URLError
         from src.core.updater import AutoUpdater, UpdateInfo
 
+        # The download response returns a minimal MZ header so PE
+        # verification passes when no SHA-256 hash is available.
+        exe_bytes = b"MZ" + b"\x00" * 10
         mock_resp = MagicMock()
-        mock_resp.read.side_effect = [b"data", b""]
-        mock_resp.headers = {"Content-Length": "4"}
+        mock_resp.read.side_effect = [exe_bytes, b""]
+        mock_resp.headers = {"Content-Length": str(len(exe_bytes))}
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+
+        # urlopen is called once for the download, then again for each
+        # .sha256 sidecar lookup (which should fail with URLError).
+        mock_urlopen.side_effect = [
+            mock_resp,                       # download
+            URLError("not found"),           # .sha256 sidecar
+            URLError("not found"),           # .sha256sum sidecar
+        ]
 
         info = UpdateInfo(
             current_version="1.0.0",
@@ -166,7 +192,7 @@ class TestUpdaterDownload(unittest.TestCase):
             download_url="https://example.com/app.exe",
             release_notes="",
             published_at="",
-            file_size=4,
+            file_size=len(exe_bytes),
         )
 
         updater = AutoUpdater(current_version="1.0.0")

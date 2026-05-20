@@ -98,6 +98,9 @@ class CloneMixin:
         if source_disk == target_disk:
             raise BackupError("Source and target disk must be different.")
 
+        if _is_system_disk(target_disk):
+            raise BackupError("Cannot clone onto the system disk — this would destroy the running OS.")
+
         if not _disk_exists(source_disk):
             raise BackupError(f"Source disk {source_disk} does not exist.")
         if not _disk_exists(target_disk):

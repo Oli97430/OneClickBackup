@@ -395,10 +395,10 @@ class SecureWiper:
 
             self._log.info("Secure wipe %s on disk %d", label, disk_index)
 
-            def _pass_callback(pct: float, msg: str) -> None:
+            def _pass_callback(pct: float, msg: str, _idx: int = pass_idx) -> None:
                 if callback:
                     # Scale each pass into its fraction of the total
-                    overall = ((pass_idx + pct / 100.0) / passes) * 100.0
+                    overall = ((_idx + pct / 100.0) / passes) * 100.0
                     callback(overall, msg)
 
             ok = _write_pattern_to_disk(
@@ -478,9 +478,9 @@ class SecureWiper:
 
             self._log.info("DoD wipe %s on disk %d", label, disk_index)
 
-            def _pass_callback(pct: float, msg: str) -> None:
+            def _pass_callback(pct: float, msg: str, _idx: int = pass_idx) -> None:
                 if callback:
-                    overall = ((pass_idx + pct / 100.0) / _DOD_PASSES) * 100.0
+                    overall = ((_idx + pct / 100.0) / _DOD_PASSES) * 100.0
                     callback(overall, msg)
 
             ok = _write_pattern_to_disk(

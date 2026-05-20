@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import functools
 import logging
+import subprocess
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -34,7 +35,7 @@ def run_as_admin() -> None:
         return
 
     script = sys.argv[0]
-    params = " ".join(f'"{arg}"' for arg in sys.argv[1:])
+    params = subprocess.list2cmdline(sys.argv[1:])
 
     try:
         ctypes.windll.shell32.ShellExecuteW(

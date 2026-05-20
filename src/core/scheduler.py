@@ -49,6 +49,11 @@ _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
 """Allowed characters for a schedule name (used in the task path)."""
 
 
+def _ps_escape(s: str) -> str:
+    """Escape single quotes for safe interpolation into PowerShell single-quoted strings."""
+    return s.replace("'", "''")
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -319,12 +324,12 @@ class BackupScheduler:
     def _build_trigger_ps(self, entry: ScheduleEntry) -> str:
         """Build the ``New-ScheduledTaskTrigger`` fragment for *entry*."""
         if entry.schedule_type == "daily":
-            return f"New-ScheduledTaskTrigger -Daily -At '{entry.time_str}'"
+            return f"New-ScheduledTaskTrigger -Daily -At '{_ps_escape(entry.time_str)}'"
 
         if entry.schedule_type == "weekly":
             return (
                 f"New-ScheduledTaskTrigger -Weekly "
-                f"-DaysOfWeek {entry.day_of_week} -At '{entry.time_str}'"
+                f"-DaysOfWeek {entry.day_of_week} -At '{_ps_escape(entry.time_str)}'"
             )
 
         # monthly — Task Scheduler CIM trigger via manual construction
@@ -357,14 +362,14 @@ class BackupScheduler:
             ps_cmd = (
                 f"{trigger_fragment}; "
                 f"$action = New-ScheduledTaskAction "
-                f"-Execute '{executable}' -Argument '{arguments}'; "
+                f"-Execute '{_ps_escape(executable)}' -Argument '{_ps_escape(arguments)}'; "
                 f"$settings = New-ScheduledTaskSettingsSet "
                 f"-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
                 f"-StartWhenAvailable; "
                 f"Register-ScheduledTask "
-                f"-TaskName '{entry.task_name}' "
+                f"-TaskName '{_ps_escape(entry.task_name)}' "
                 f"-Trigger $trigger -Action $action -Settings $settings "
-                f"-Description 'OneClickBackup scheduled backup: {entry.name}' "
+                f"-Description 'OneClickBackup scheduled backup: {_ps_escape(entry.name)}' "
                 f"-Force"
             )
         else:
@@ -372,14 +377,14 @@ class BackupScheduler:
             ps_cmd = (
                 f"$trigger = {trigger_fragment}; "
                 f"$action = New-ScheduledTaskAction "
-                f"-Execute '{executable}' -Argument '{arguments}'; "
+                f"-Execute '{_ps_escape(executable)}' -Argument '{_ps_escape(arguments)}'; "
                 f"$settings = New-ScheduledTaskSettingsSet "
                 f"-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries "
                 f"-StartWhenAvailable; "
                 f"Register-ScheduledTask "
-                f"-TaskName '{entry.task_name}' "
+                f"-TaskName '{_ps_escape(entry.task_name)}' "
                 f"-Trigger $trigger -Action $action -Settings $settings "
-                f"-Description 'OneClickBackup scheduled backup: {entry.name}' "
+                f"-Description 'OneClickBackup scheduled backup: {_ps_escape(entry.name)}' "
                 f"-Force"
             )
 
@@ -405,7 +410,7 @@ class BackupScheduler:
             SchedulerError: If the PowerShell command fails.
         """
         ps_cmd = (
-            f"Unregister-ScheduledTask -TaskName '{task_name}' "
+            f"Unregister-ScheduledTask -TaskName '{_ps_escape(task_name)}' "
             f"-Confirm:$false -ErrorAction Stop"
         )
         self._log.debug("Unregistering task: %s", ps_cmd)
