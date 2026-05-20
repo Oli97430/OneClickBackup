@@ -71,6 +71,22 @@ All notable changes to OneClick Backup & Disk Manager are documented in this fil
 - Crash report summary preferred title line over Exception line
 - Full `C:\` tree walk replaced with `shutil.disk_usage().used`
 - Brace escaping in disk_health surface test PS script
+- **AdvancedPage** read wrong combo box for 5 disk operations (imaging, defrag, benchmark, surface test, SMART)
+- **Updater** `os.kill(pid, 0)` on Windows kills process — replaced with `ctypes.OpenProcess`
+- **Theme toggle** high-contrast palette never applied — now swaps COLORS dict
+- **Portable mode** checked wrong directory for `.portable` file
+- **Clone EFI** partition PS filter `DriveLetter -eq ''` never matched — fixed to `$null`
+- **Clone** empty partition list crash — added guard before `data[0]`
+- **delete_backup** path traversal allowed deleting entire backup directory
+- **USB monitor** poll not cancelled on close — prevented `TclError`
+- **History count** read entire file — optimized to line count
+- **Crash report** `sys.executable` path not redacted (username leak)
+- **Report** `makedirs` failed on relative output paths
+- **i18n** removed deprecated `locale.getdefaultlocale()`; 11 missing translation keys added
+- **Version** `__init__.__version__` synced to 1.3.0
+- **run_powershell** timeout parameter now configurable and forwarded
+- **disk_info** removed dead variable and contradictory comments
+- **Clone** dead variables removed; `is_recovery` now used in resize logic
 
 ## [1.1.0] — 2026-05-19
 
